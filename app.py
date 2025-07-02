@@ -72,27 +72,33 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
 
 
             if specific_codes_list:
-                # Resaltado por lista de códigos específicos (búsqueda de cadena exacta)
+                # Resaltado por lista de códigos específicos (búsqueda de cadena exacta con manejo de saltos de línea)
                 for code_to_find in specific_codes_list:
                     # Normalizar el código para la búsqueda (eliminar espacios extra al inicio/final)
                     normalized_code = code_to_find.strip()
                     if not normalized_code: # Saltar si el código está vacío después de normalizar
                         continue
 
-                    print(f"DEBUG: Buscando código específico (coincidencia exacta): '{normalized_code.replace('\n', '\\n')}' en página {numero_pagina + 1}.")
+                    # Construir una regex para el código específico que permita cualquier espacio (incluyendo saltos de línea)
+                    # entre los caracteres del código. re.escape() maneja caracteres especiales en el código.
+                    # Ejemplo: "MF0610G" -> "M\s*F\s*0\s*6\s*1\s*0\s*G"
+                    regex_for_specific_code = r"".join(re.escape(char) + r"\s*" for char in normalized_code).rstrip(r"\s*")
                     
-                    # Usamos search_for directamente con el código normalizado
-                    # Esto buscará la cadena exacta en cualquier parte de la página,
-                    # y fitz.get_text("text") debería manejar saltos de línea donde la cadena es continua.
-                    rects_codigo = pagina.search_for(normalized_code)
+                    print(f"DEBUG: Buscando código específico (regex flexible): '{normalized_code.replace('\n', '\\n')}' con patrón '{regex_for_specific_code}' en página {numero_pagina + 1}.")
                     
-                    if rects_codigo:
-                        for rect_codigo in rects_codigo:
+                    # Usamos re.finditer para encontrar todas las ocurrencias de esta regex flexible
+                    matches = re.finditer(regex_for_specific_code, texto_pagina)
+                    
+                    for match in matches:
+                        # Obtener el rectángulo exacto de la coincidencia usando sus índices de inicio y fin
+                        rect_codigo = pagina.rect_of_span(match.start(), match.end())
+                        
+                        if rect_codigo: # Verifica si se pudo obtener un rectángulo válido
                             pagina.add_highlight_annot(rect_codigo) 
                             found_any_code = True
-                            print(f"DEBUG: Código específico '{normalized_code.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1}.")
-                    else:
-                        print(f"DEBUG: NO se encontró el código específico '{normalized_code.replace('\n', '\\n')}' para resaltar en página {numero_pagina + 1}.")
+                            print(f"DEBUG: Código específico '{normalized_code.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1} en coordenadas: {rect_codigo}.")
+                        else:
+                            print(f"DEBUG: NO se pudo obtener rectángulo para '{normalized_code.replace('\n', '\\n')}' en página {numero_pagina + 1} (posiblemente por layout complejo).")
             else:
                 # Resaltado por expresión regular (comportamiento original si no se dan códigos específicos)
                 # Esta regex se mantiene para la detección automática de códigos "Ref: ... /"
