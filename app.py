@@ -89,7 +89,8 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida):
                 
                 if rects_codigo: # Verifica si search_for realmente encontró algo
                     for rect_codigo in rects_codigo:
-                        pagina.add_highlight_annot(rect_codigo)
+                        # Cambiado el color de resaltado a verde (RGB: 0.0, 1.0, 0.0)
+                        pagina.add_highlight_annot(rect_codigo, color=(0, 1, 0))
                         found_any_code = True
                         print(f"DEBUG: Código '{texto_a_resaltar.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1}.")
                         # Se eliminó la línea 'break' para que se resalten todas las ocurrencias
@@ -173,7 +174,7 @@ def upload_file():
                 return redirect(url_for('index'))
         else:
             flash('Error al procesar el PDF. Por favor, inténtalo de nuevo.')
-            return redirect(url_for('index'))
+            return redirect(request.url)
     else:
         flash('Tipo de archivo no permitido. Por favor, sube un archivo PDF.')
         return redirect(request.url)
