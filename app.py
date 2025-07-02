@@ -93,12 +93,13 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida):
                 
                 if rects_codigo: # Verifica si search_for realmente encontró algo
                     for rect_codigo in rects_codigo:
-                        # Creamos la anotación de resaltado con el método predeterminado
+                        # Creamos la anotación de resaltado
                         annot = pagina.add_highlight_annot(rect_codigo)
-                        # Luego, modificamos el color de la anotación directamente a través de su propiedad 'colors'.
-                        # 'colors' es una tupla (color_del_borde, color_de_relleno).
+                        # Luego, modificamos el color de la anotación usando el método update()
+                        # La propiedad 'colors' en PyMuPDF es una tupla (color_del_borde, color_de_relleno).
                         # Para un resaltado, el color de relleno es el que importa.
-                        annot.colors = (None, HIGHLIGHT_COLOR) # None para el color del borde (transparente)
+                        # Pasamos None para el color del borde y HIGHLIGHT_COLOR para el relleno.
+                        annot.update(colors=(None, HIGHLIGHT_COLOR))
                         
                         found_any_code = True
                         print(f"DEBUG: Código '{texto_a_resaltar.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1}.")
