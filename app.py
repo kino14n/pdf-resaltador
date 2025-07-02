@@ -55,6 +55,7 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida):
         doc = fitz.open(ruta_pdf_entrada)
         
         # Definir la expresión regular para el patrón especificado
+        # Captura el texto entre "Ref:" y el primer "/"
         regex_patron = r"Ref:\s*([a-zA-Z0-9.:\-\s]+?)/"
 
         found_any_code = False # Bandera para verificar si se encontró y resaltó algún código
@@ -66,15 +67,27 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida):
             coincidencias = re.finditer(regex_patron, texto_pagina)
 
             for coincidencia in coincidencias:
-                codigo_extraido = coincidencia.group(1).strip()
-                # Buscar las coordenadas del texto del código extraído para resaltarlo
-                rects_codigo = pagina.search_for(codigo_extraido)
+                # Usar el texto exacto capturado por el grupo 1, sin .strip() inicial
+                # para que search_for tenga la mejor oportunidad de encontrarlo tal cual está en el PDF.
+                texto_a_resaltar = coincidencia.group(1) 
+                
+                print(f"DEBUG: Buscando para resaltar: '{texto_a_resaltar}' en página {numero_pagina + 1}.")
+                
+                # Buscar las coordenadas del texto a resaltar
+                rects_codigo = pagina.search_for(texto_a_resaltar)
+                
                 if rects_codigo: # Verifica si search_for realmente encontró algo
                     for rect_codigo in rects_codigo:
                         pagina.add_highlight_annot(rect_codigo)
                         found_any_code = True
-                        print(f"DEBUG: Código '{codigo_extraido}' resaltado en página {numero_pagina + 1}.")
-                        break # Resaltar solo la primera ocurrencia encontrada por search_for para este código específico
+                        print(f"DEBUG: Código '{texto_a_resaltar}' resaltado en página {numero_pagina + 1}.")
+                        # Si un código puede aparecer varias veces en la misma línea y solo quieres el primero,
+                        # o si quieres resaltar todas las ocurrencias exactas, ajusta el 'break' aquí.
+                        # Para el propósito de depuración, resaltaremos la primera que encuentre 'search_for'.
+                        break 
+                else:
+                    print(f"DEBUG: NO se encontró el texto '{texto_a_resaltar}' para resaltar en página {numero_pagina + 1}.")
+
 
         doc.save(ruta_pdf_salida)
         doc.close()
@@ -162,3 +175,4 @@ if __name__ == '__main__':
     # En Railway, el puerto será proporcionado por la variable de entorno PORT.
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=True, host='0.0.0.0', port=port)
+
