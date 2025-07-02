@@ -56,13 +56,14 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida):
         
         # Definir la expresión regular para el patrón especificado
         # Captura el texto entre "Ref:" y el primer "/"
-        # Ajuste de Regex:
-        # - [Cc]?: Opcionalmente 'C' o 'c' al inicio (para C-975)
-        # - [\w\d\.\-]+: Caracteres de palabra (letras, números, guion bajo), dígitos, puntos o guiones.
-        # - +?: Uno o más, no codicioso.
-        # - \s*: Cero o más espacios ANTES de la barra. Esto permite capturar el código sin los espacios finales.
-        # - /: La barra literal.
-        regex_patron = r"Ref:\s*([Cc]?[\w\d\.\-]+?)\s*/"
+        # Ajuste de Regex para mayor flexibilidad:
+        # - Ref:\s*: "Ref:" seguido de cero o más espacios.
+        # - ( ... ): Grupo de captura para el código.
+        #   - [a-zA-Z0-9.:\-\s]+: Coincide con uno o más caracteres que sean letras, números, puntos,
+        #     dos puntos, guiones O ESPACIOS. (Esto incluye el espacio '\s' que faltaba).
+        #   - +?: El cuantificador no codicioso. Crucial para que coincida hasta la *primera* secuencia de barras.
+        # - /+: Coincide con una o más barras (/, //, ///, etc.).
+        regex_patron = r"Ref:\s*([a-zA-Z0-9.:\-\s]+?)/+"
 
         found_any_code = False # Bandera para verificar si se encontró y resaltó algún código
 
@@ -74,10 +75,10 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida):
 
             for coincidencia in coincidencias:
                 # El texto exacto que la regex capturó como el código
-                texto_a_resaltar = coincidencia.group(1) 
+                texto_a_resaltar = coincidencia.group(1).strip() # Añadimos .strip() para limpiar espacios al inicio/final del código capturado
                 
                 print(f"DEBUG: Coincidencia de Regex completa: '{coincidencia.group(0)}'")
-                print(f"DEBUG: Texto capturado para resaltar (grupo 1): '{texto_a_resaltar}' en página {numero_pagina + 1}.")
+                print(f"DEBUG: Texto capturado para resaltar (grupo 1, con strip): '{texto_a_resaltar}' en página {numero_pagina + 1}.")
                 
                 # Buscar las coordenadas del texto a resaltar
                 # Es crucial que 'texto_a_resaltar' coincida exactamente con el texto en el PDF.
