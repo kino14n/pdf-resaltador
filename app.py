@@ -84,51 +84,65 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
                     if not normalized_code: # Saltar si el código está vacío después de normalizar
                         continue
 
-                    # Convertir el código a buscar a minúsculas y limpiar caracteres no alfanuméricos
-                    # para una búsqueda insensible a mayúsculas/minúsculas y más robusta a la extracción de PDF
-                    search_lower_cleaned = re.sub(r'[^a-z0-9]', '', normalized_code.lower())
+                    # Pre-procesar el código a buscar: normalizar espacios y convertir a minúsculas
+                    # Mantener caracteres como puntos y guiones, ya que son parte de los códigos.
+                    search_lower_normalized = re.sub(r'\s+', ' ', normalized_code.lower()).strip()
                     
                     # Iterar a través de las palabras de la página para encontrar el código
-                    for i in range(len(words)):
+                    # Usamos un bucle 'while' para poder ajustar 'i' manualmente
+                    i = 0
+                    while i < len(words):
                         current_word_text = words[i][4] # Texto original de la palabra
-                        current_word_text_cleaned = re.sub(r'[^a-z0-9]', '', current_word_text.lower()) # Versión limpia y minúscula
+                        # Normalizar la palabra actual para la comparación
+                        current_word_normalized = re.sub(r'\s+', ' ', current_word_text.lower()).strip()
                         
                         # DEBUG: Mostrar la palabra actual que se está evaluando
-                        print(f"DEBUG: Página {numero_pagina + 1}, Palabra {i}: '{current_word_text}' (limpia: '{current_word_text_cleaned}')")
+                        print(f"DEBUG: Página {numero_pagina + 1}, Palabra {i}: '{current_word_text}' (normalizada: '{current_word_normalized}')")
 
-                        # Si la palabra actual coincide con el inicio del código limpio
-                        if search_lower_cleaned.startswith(current_word_text_cleaned):
-                            reconstructed_code_cleaned = current_word_text_cleaned
+                        # Si la palabra actual coincide con el inicio del código normalizado
+                        if search_lower_normalized.startswith(current_word_normalized):
+                            reconstructed_code_normalized = current_word_normalized
                             start_word_index = i
                             
                             # Rectángulo combinado para el resaltado
                             combined_rect = fitz.Rect(words[i][:4])
 
                             # Continuar con las siguientes palabras para ver si forman el código completo
-                            for j in range(i + 1, len(words)):
+                            j = i + 1
+                            while j < len(words):
                                 next_word_text = words[j][4]
-                                next_word_text_cleaned = re.sub(r'[^a-z0-9]', '', next_word_text.lower())
+                                next_word_normalized = re.sub(r'\s+', ' ', next_word_text.lower()).strip()
                                 
-                                # Verificar si la siguiente palabra es parte del código limpio
-                                # Y si la longitud de la reconstrucción no excede la del código buscado limpio
-                                if search_lower_cleaned.startswith(reconstructed_code_cleaned + next_word_text_cleaned) and \
-                                   len(reconstructed_code_cleaned + next_word_text_cleaned) <= len(search_lower_cleaned):
-                                    reconstructed_code_cleaned += next_word_text_cleaned
+                                # Intentar añadir la siguiente palabra con un espacio en medio
+                                potential_reconstruction = reconstructed_code_normalized + " " + next_word_normalized
+                                
+                                # Verificar si la siguiente palabra es parte del código normalizado
+                                # Y si la longitud de la reconstrucción no excede la del código buscado normalizado
+                                if search_lower_normalized.startswith(potential_reconstruction) and \
+                                   len(potential_reconstruction) <= len(search_lower_normalized):
+                                    
+                                    reconstructed_code_normalized = potential_reconstruction
                                     combined_rect |= fitz.Rect(words[j][:4]) # Combinar rectángulos
-                                    print(f"DEBUG:   Reconstruyendo (limpio): '{reconstructed_code_cleaned}' con '{next_word_text_cleaned}'")
+                                    print(f"DEBUG:   Reconstruyendo (normalizado): '{reconstructed_code_normalized}' con '{next_word_normalized}'")
+                                    j += 1
                                 else:
                                     # Si la siguiente palabra no es parte del código, o excede la longitud, romper
                                     break
                             
-                            # Si el código reconstruido (limpio) coincide con el código buscado (limpio)
-                            if reconstructed_code_cleaned == search_lower_cleaned:
+                            # Si el código reconstruido (normalizado) coincide con el código buscado (normalizado)
+                            if reconstructed_code_normalized == search_lower_normalized:
                                 # Resaltar el rectángulo combinado
                                 pagina.add_highlight_annot(combined_rect) 
                                 found_any_code = True
                                 print(f"DEBUG: Código específico '{normalized_code.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1} en coordenadas: {combined_rect}.")
-                                # Para evitar resaltar la misma instancia si hay superposiciones,
-                                # avanzamos el índice 'i' para que no vuelva a procesar las palabras ya usadas.
-                                i = j - 1 # Ajusta el índice del bucle exterior
+                                # Ajustamos el índice 'i' para que el bucle exterior continúe después de las palabras ya usadas.
+                                i = j # Avanza 'i' al final de la secuencia encontrada
+                            else:
+                                # Si no hubo coincidencia completa, avanza 'i' a la siguiente palabra no procesada
+                                i += 1
+                        else:
+                            # Si la palabra actual no coincide con el inicio, avanza a la siguiente
+                            i += 1
             else:
                 # Resaltado por expresión regular (comportamiento original si no se dan códigos específicos)
                 # Esta regex se mantiene para la detección automática de códigos "Ref: ... /"
@@ -234,4 +248,3 @@ def upload_file():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=True, host='0.0.0.0', port=port)
-
