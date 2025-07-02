@@ -67,48 +67,35 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
             pagina = doc[numero_pagina]
             texto_pagina = pagina.get_text("text")
             
-            # NUEVA LÍNEA DE DEPURACIÓN: Verificar si el texto de la página se extrajo
+            # Depuración: Verificar si el texto de la página se extrajo
             print(f"DEBUG: Texto extraído de la página {numero_pagina + 1} (longitud: {len(texto_pagina)}). Primeros 100 caracteres: '{texto_pagina[:100].replace('\n', '\\n')}'")
 
 
             if specific_codes_list:
-                # Resaltado por lista de códigos específicos
+                # Resaltado por lista de códigos específicos (búsqueda de cadena exacta)
                 for code_to_find in specific_codes_list:
+                    # Normalizar el código para la búsqueda (eliminar espacios extra al inicio/final)
                     normalized_code = code_to_find.strip()
                     if not normalized_code: # Saltar si el código está vacío después de normalizar
                         continue
 
-                    # Construir una regex para el código específico dentro del contexto "Ref: ... /"
-                    # re.escape() asegura que caracteres especiales en el código del usuario no rompan la regex
-                    # Añadimos \.? para permitir un punto opcional después del código
-                    # Y \s* para espacios opcionales antes de las barras finales
-                    specific_code_regex = r"Ref:\s*(" + re.escape(normalized_code) + r"\.?)\s*/+"
+                    print(f"DEBUG: Buscando código específico (coincidencia exacta): '{normalized_code.replace('\n', '\\n')}' en página {numero_pagina + 1}.")
                     
-                    print(f"DEBUG: Regex para código específico: '{specific_code_regex}'")
+                    # Usamos search_for directamente con el código normalizado
+                    # Esto buscará la cadena exacta en cualquier parte de la página,
+                    # y fitz.get_text("text") debería manejar saltos de línea donde la cadena es continua.
+                    rects_codigo = pagina.search_for(normalized_code)
                     
-                    # Usar re.finditer para encontrar todas las ocurrencias contextuales
-                    contextual_matches = re.finditer(specific_code_regex, texto_pagina)
-
-                    for match in contextual_matches:
-                        # El texto exacto capturado por el grupo de la regex (el código con el posible punto)
-                        text_to_highlight_exact = match.group(1) 
-                        
-                        print(f"DEBUG: Coincidencia contextual para '{normalized_code}': '{match.group(0).replace('\n', '\\n')}'")
-                        print(f"DEBUG: Texto exacto a resaltar: '{text_to_highlight_exact.replace('\n', '\\n')}' en página {numero_pagina + 1}.")
-                        
-                        # Buscar las coordenadas del texto exacto a resaltar
-                        rects_codigo = pagina.search_for(text_to_highlight_exact)
-                        
-                        if rects_codigo:
-                            for rect_codigo in rects_codigo:
-                                pagina.add_highlight_annot(rect_codigo) 
-                                found_any_code = True
-                                print(f"DEBUG: Código específico '{text_to_highlight_exact.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1}.")
-                        else:
-                            print(f"DEBUG: NO se encontró el texto exacto '{text_to_highlight_exact.replace('\n', '\\n')}' para resaltar en página {numero_pagina + 1}.")
+                    if rects_codigo:
+                        for rect_codigo in rects_codigo:
+                            pagina.add_highlight_annot(rect_codigo) 
+                            found_any_code = True
+                            print(f"DEBUG: Código específico '{normalized_code.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1}.")
+                    else:
+                        print(f"DEBUG: NO se encontró el código específico '{normalized_code.replace('\n', '\\n')}' para resaltar en página {numero_pagina + 1}.")
             else:
-                # Resaltado por expresión regular (comportamiento original)
-                # Esta regex se mantiene para la detección automática
+                # Resaltado por expresión regular (comportamiento original si no se dan códigos específicos)
+                # Esta regex se mantiene para la detección automática de códigos "Ref: ... /"
                 regex_patron = r"Ref:\s*([a-zA-Z0-9.:\-\s]+?)/+"
                 coincidencias = re.finditer(regex_patron, texto_pagina)
 
@@ -194,13 +181,9 @@ def upload_file():
         if ruta_pdf_resaltado:
             if os.path.exists(ruta_pdf_resaltado):
                 print(f"DEBUG: Preparando para enviar el archivo procesado: '{ruta_pdf_resaltado}'")
-                flash('PDF procesado con éxito. Descarga tu archivo resaltado.')
-                try:
-                    return send_file(ruta_pdf_resaltado, as_attachment=True, download_name=f"resaltado_{filename}")
-                except Exception as e:
-                    print(f"ERROR: Fallo al enviar el archivo '{ruta_pdf_resaltado}': {e}")
-                    flash('Error al descargar el PDF procesado. Por favor, inténtalo de nuevo.')
-                    return redirect(url_for('index'))
+                flash('PDF procesado con éxito. Mostrando vista previa.')
+                # CAMBIO CLAVE: Mostrar el PDF en el navegador en lugar de forzar la descarga
+                return send_file(ruta_pdf_resaltado, mimetype='application/pdf')
             else:
                 print(f"ERROR: ruta_pdf_resaltado es válida, pero el archivo no existe: '{ruta_pdf_resaltado}'")
                 flash('Error al procesar el PDF: El archivo de salida no se encontró.')
