@@ -56,7 +56,13 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida):
         
         # Definir la expresión regular para el patrón especificado
         # Captura el texto entre "Ref:" y el primer "/"
-        regex_patron = r"Ref:\s*([a-zA-Z0-9.:\-\s]+?)/"
+        # Ajuste de Regex:
+        # - [Cc]?: Opcionalmente 'C' o 'c' al inicio (para C-975)
+        # - [\w\d\.\-]+: Caracteres de palabra (letras, números, guion bajo), dígitos, puntos o guiones.
+        # - +?: Uno o más, no codicioso.
+        # - \s*: Cero o más espacios ANTES de la barra. Esto permite capturar el código sin los espacios finales.
+        # - /: La barra literal.
+        regex_patron = r"Ref:\s*([Cc]?[\w\d\.\-]+?)\s*/"
 
         found_any_code = False # Bandera para verificar si se encontró y resaltó algún código
 
@@ -67,13 +73,15 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida):
             coincidencias = re.finditer(regex_patron, texto_pagina)
 
             for coincidencia in coincidencias:
-                # Usar el texto exacto capturado por el grupo 1, sin .strip() inicial
-                # para que search_for tenga la mejor oportunidad de encontrarlo tal cual está en el PDF.
+                # El texto exacto que la regex capturó como el código
                 texto_a_resaltar = coincidencia.group(1) 
                 
-                print(f"DEBUG: Buscando para resaltar: '{texto_a_resaltar}' en página {numero_pagina + 1}.")
+                print(f"DEBUG: Coincidencia de Regex completa: '{coincidencia.group(0)}'")
+                print(f"DEBUG: Texto capturado para resaltar (grupo 1): '{texto_a_resaltar}' en página {numero_pagina + 1}.")
                 
                 # Buscar las coordenadas del texto a resaltar
+                # Es crucial que 'texto_a_resaltar' coincida exactamente con el texto en el PDF.
+                # Si hay variaciones sutiles (espacios extra, caracteres especiales), search_for puede fallar.
                 rects_codigo = pagina.search_for(texto_a_resaltar)
                 
                 if rects_codigo: # Verifica si search_for realmente encontró algo
@@ -81,12 +89,11 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida):
                         pagina.add_highlight_annot(rect_codigo)
                         found_any_code = True
                         print(f"DEBUG: Código '{texto_a_resaltar}' resaltado en página {numero_pagina + 1}.")
-                        # Si un código puede aparecer varias veces en la misma línea y solo quieres el primero,
-                        # o si quieres resaltar todas las ocurrencias exactas, ajusta el 'break' aquí.
-                        # Para el propósito de depuración, resaltaremos la primera que encuentre 'search_for'.
+                        # Romper después de la primera coincidencia de search_for para evitar resaltados duplicados
+                        # si el mismo 'texto_a_resaltar' aparece varias veces en la misma línea/página.
                         break 
                 else:
-                    print(f"DEBUG: NO se encontró el texto '{texto_a_resaltar}' para resaltar en página {numero_pagina + 1}.")
+                    print(f"DEBUG: NO se encontró el texto '{texto_a_resaltar}' para resaltar en página {numero_pagina + 1} (posiblemente por diferencias exactas en el texto o el layout del PDF).")
 
 
         doc.save(ruta_pdf_salida)
