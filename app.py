@@ -89,8 +89,9 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida):
                 
                 if rects_codigo: # Verifica si search_for realmente encontró algo
                     for rect_codigo in rects_codigo:
-                        # Cambiado el color de resaltado a verde (RGB: 0.0, 1.0, 0.0)
-                        pagina.add_highlight_annot(rect_codigo, color=(0, 1, 0))
+                        # Eliminado el argumento 'color' ya que la versión de PyMuPDF en Railway no lo soporta.
+                        # Usará el color de resaltado predeterminado (generalmente amarillo).
+                        pagina.add_highlight_annot(rect_codigo) 
                         found_any_code = True
                         print(f"DEBUG: Código '{texto_a_resaltar.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1}.")
                         # Se eliminó la línea 'break' para que se resalten todas las ocurrencias
