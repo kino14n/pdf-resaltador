@@ -129,13 +129,15 @@ def upload_file():
     """Maneja la subida del archivo PDF, lo procesa y ofrece la descarga."""
     if 'pdf_file' not in request.files:
         flash('No se seleccionó ningún archivo.')
-        return redirect(request.url)
+        # Redirigir a la página principal en caso de error
+        return redirect(url_for('index'))
     
     file = request.files['pdf_file']
     
     if file.filename == '':
         flash('No se seleccionó ningún archivo.')
-        return redirect(request.url)
+        # Redirigir a la página principal en caso de error
+        return redirect(url_for('index'))
     
     if file and allowed_file(file.filename):
         filename = secure_filename(file.filename)
@@ -167,17 +169,21 @@ def upload_file():
                 except Exception as e:
                     print(f"ERROR: Fallo al enviar el archivo '{ruta_pdf_resaltado}': {e}")
                     flash('Error al descargar el PDF procesado. Por favor, inténtalo de nuevo.')
+                    # Redirigir a la página principal en caso de error
                     return redirect(url_for('index'))
             else:
                 print(f"ERROR: ruta_pdf_resaltado es válida, pero el archivo no existe: '{ruta_pdf_resaltado}'")
                 flash('Error al procesar el PDF: El archivo de salida no se encontró.')
+                # Redirigir a la página principal en caso de error
                 return redirect(url_for('index'))
         else:
             flash('Error al procesar el PDF. Por favor, inténtalo de nuevo.')
-            return redirect(request.url)
+            # Redirigir a la página principal en caso de error
+            return redirect(url_for('index'))
     else:
         flash('Tipo de archivo no permitido. Por favor, sube un archivo PDF.')
-        return redirect(request.url)
+        # Redirigir a la página principal en caso de error
+        return redirect(url_for('index'))
 
 if __name__ == '__main__':
     # Para despliegue en Railway, Gunicorn será el servidor.
