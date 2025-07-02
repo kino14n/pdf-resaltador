@@ -75,10 +75,12 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida):
 
             for coincidencia in coincidencias:
                 # El texto exacto que la regex capturó como el código
-                texto_a_resaltar = coincidencia.group(1).strip() # Añadimos .strip() para limpiar espacios al inicio/final del código capturado
+                # IMPORTANTE: Eliminamos .strip() para que search_for reciba la cadena exacta
+                # incluyendo cualquier espacio o salto de línea que la regex haya capturado.
+                texto_a_resaltar = coincidencia.group(1) 
                 
-                print(f"DEBUG: Coincidencia de Regex completa: '{coincidencia.group(0)}'")
-                print(f"DEBUG: Texto capturado para resaltar (grupo 1, con strip): '{texto_a_resaltar}' en página {numero_pagina + 1}.")
+                print(f"DEBUG: Coincidencia de Regex completa: '{coincidencia.group(0).replace('\n', '\\n')}'") # Reemplazar \n para visualización en logs
+                print(f"DEBUG: Texto capturado para resaltar (grupo 1, sin strip): '{texto_a_resaltar.replace('\n', '\\n')}' en página {numero_pagina + 1}.")
                 
                 # Buscar las coordenadas del texto a resaltar
                 # Es crucial que 'texto_a_resaltar' coincida exactamente con el texto en el PDF.
@@ -89,12 +91,11 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida):
                     for rect_codigo in rects_codigo:
                         pagina.add_highlight_annot(rect_codigo)
                         found_any_code = True
-                        print(f"DEBUG: Código '{texto_a_resaltar}' resaltado en página {numero_pagina + 1}.")
-                        # Romper después de la primera coincidencia de search_for para evitar resaltados duplicados
-                        # si el mismo 'texto_a_resaltar' aparece varias veces en la misma línea/página.
-                        break 
+                        print(f"DEBUG: Código '{texto_a_resaltar.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1}.")
+                        # Se eliminó la línea 'break' para que se resalten todas las ocurrencias
+                        # encontradas por search_for para este 'texto_a_resaltar' en la página.
                 else:
-                    print(f"DEBUG: NO se encontró el texto '{texto_a_resaltar}' para resaltar en página {numero_pagina + 1} (posiblemente por diferencias exactas en el texto o el layout del PDF).")
+                    print(f"DEBUG: NO se encontró el texto '{texto_a_resaltar.replace('\n', '\\n')}' para resaltar en página {numero_pagina + 1} (posiblemente por diferencias exactas en el texto o el layout del PDF).")
 
 
         doc.save(ruta_pdf_salida)
