@@ -84,52 +84,51 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
                     if not normalized_code: # Saltar si el código está vacío después de normalizar
                         continue
 
-                    # Convertir el código a buscar a minúsculas para una búsqueda insensible a mayúsculas/minúsculas
-                    search_lower = normalized_code.lower()
+                    # Convertir el código a buscar a minúsculas y limpiar caracteres no alfanuméricos
+                    # para una búsqueda insensible a mayúsculas/minúsculas y más robusta a la extracción de PDF
+                    search_lower_cleaned = re.sub(r'[^a-z0-9]', '', normalized_code.lower())
                     
                     # Iterar a través de las palabras de la página para encontrar el código
                     for i in range(len(words)):
-                        current_word_text = words[i][4].lower() # Texto de la palabra actual
+                        current_word_text = words[i][4] # Texto original de la palabra
+                        current_word_text_cleaned = re.sub(r'[^a-z0-9]', '', current_word_text.lower()) # Versión limpia y minúscula
                         
                         # DEBUG: Mostrar la palabra actual que se está evaluando
-                        # print(f"DEBUG: Página {numero_pagina + 1}, Palabra {i}: '{current_word_text}'")
+                        print(f"DEBUG: Página {numero_pagina + 1}, Palabra {i}: '{current_word_text}' (limpia: '{current_word_text_cleaned}')")
 
-                        # Si la palabra actual coincide con el inicio del código
-                        if search_lower.startswith(current_word_text):
-                            # Intentar construir el código completo a partir de esta palabra
-                            reconstructed_code = current_word_text
+                        # Si la palabra actual coincide con el inicio del código limpio
+                        if search_lower_cleaned.startswith(current_word_text_cleaned):
+                            reconstructed_code_cleaned = current_word_text_cleaned
                             start_word_index = i
-                            end_word_index = i
                             
-                            # Combinar rectángulos para el resaltado
-                            combined_rect = fitz.Rect(words[i][:4]) # Rectángulo de la primera palabra
+                            # Rectángulo combinado para el resaltado
+                            combined_rect = fitz.Rect(words[i][:4])
 
                             # Continuar con las siguientes palabras para ver si forman el código completo
                             for j in range(i + 1, len(words)):
-                                next_word_text = words[j][4].lower()
+                                next_word_text = words[j][4]
+                                next_word_text_cleaned = re.sub(r'[^a-z0-9]', '', next_word_text.lower())
                                 
-                                # Verificar si la siguiente palabra es parte del código
-                                # También verificar si la palabra actual + siguiente palabra no excede la longitud del código buscado
-                                if search_lower.startswith(reconstructed_code + next_word_text) and \
-                                   len(reconstructed_code + next_word_text) <= len(search_lower):
-                                    reconstructed_code += next_word_text
-                                    end_word_index = j
+                                # Verificar si la siguiente palabra es parte del código limpio
+                                # Y si la longitud de la reconstrucción no excede la del código buscado limpio
+                                if search_lower_cleaned.startswith(reconstructed_code_cleaned + next_word_text_cleaned) and \
+                                   len(reconstructed_code_cleaned + next_word_text_cleaned) <= len(search_lower_cleaned):
+                                    reconstructed_code_cleaned += next_word_text_cleaned
                                     combined_rect |= fitz.Rect(words[j][:4]) # Combinar rectángulos
-                                    # DEBUG: Mostrar la reconstrucción del código
-                                    # print(f"DEBUG:   Reconstruyendo: '{reconstructed_code}'")
+                                    print(f"DEBUG:   Reconstruyendo (limpio): '{reconstructed_code_cleaned}' con '{next_word_text_cleaned}'")
                                 else:
                                     # Si la siguiente palabra no es parte del código, o excede la longitud, romper
                                     break
                             
-                            # Si el código reconstruido coincide con el código buscado
-                            if reconstructed_code == search_lower:
+                            # Si el código reconstruido (limpio) coincide con el código buscado (limpio)
+                            if reconstructed_code_cleaned == search_lower_cleaned:
                                 # Resaltar el rectángulo combinado
                                 pagina.add_highlight_annot(combined_rect) 
                                 found_any_code = True
                                 print(f"DEBUG: Código específico '{normalized_code.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1} en coordenadas: {combined_rect}.")
                                 # Para evitar resaltar la misma instancia si hay superposiciones,
-                                # podríamos avanzar 'i' hasta 'end_word_index', pero para simplicidad,
-                                # lo dejamos así por ahora.
+                                # avanzamos el índice 'i' para que no vuelva a procesar las palabras ya usadas.
+                                i = j - 1 # Ajusta el índice del bucle exterior
             else:
                 # Resaltado por expresión regular (comportamiento original si no se dan códigos específicos)
                 # Esta regex se mantiene para la detección automática de códigos "Ref: ... /"
