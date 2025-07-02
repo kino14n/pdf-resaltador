@@ -101,7 +101,7 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
                         current_word_flat = current_word_text.lower().replace(' ', '')
                         
                         # DEBUG: Mostrar la palabra actual que se está evaluando
-                        # print(f"DEBUG: Página {numero_pagina + 1}, Palabra {i}: '{current_word_text}' (plana: '{current_word_flat}')")
+                        print(f"DEBUG: Página {numero_pagina + 1}, Palabra {i}: '{current_word_text}' (plana: '{current_word_flat}')")
 
                         # Si la palabra actual (plana) coincide con el inicio del código objetivo (plano)
                         if search_target_flat.startswith(current_word_flat):
