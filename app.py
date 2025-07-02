@@ -30,14 +30,17 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida):
+def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specific_codes_list=None):
     """
-    Procesa un archivo PDF, busca códigos que están entre "Ref:" y el primer "/",
+    Procesa un archivo PDF, busca códigos (ya sea por regex o por lista específica),
     y crea un nuevo PDF con esos códigos resaltados.
 
     Args:
         ruta_pdf_entrada (str): La ruta completa al archivo PDF que se va a procesar.
         directorio_salida (str): La ruta del directorio donde se guardará el PDF resaltado.
+        specific_codes_list (list, optional): Una lista de códigos específicos a resaltar.
+                                              Si se proporciona, se ignorará la regex.
+                                              Defaults to None.
 
     Returns:
         str: La ruta completa del archivo PDF resaltado si el procesamiento fue exitoso,
@@ -50,68 +53,70 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida):
     ruta_pdf_salida = os.path.join(directorio_salida, nombre_pdf_salida)
 
     print(f"DEBUG: Intentando procesar PDF. Entrada: '{ruta_pdf_entrada}', Salida esperada: '{ruta_pdf_salida}'")
+    if specific_codes_list:
+        print(f"DEBUG: Modo de resaltado: Códigos específicos. Lista: {specific_codes_list}")
+    else:
+        print("DEBUG: Modo de resaltado: Regex.")
 
     try:
         doc = fitz.open(ruta_pdf_entrada)
         
-        # Definir la expresión regular para el patrón especificado
-        # Captura el texto entre "Ref:" y el primer "/"
-        # Ajuste de Regex para mayor flexibilidad:
-        # - Ref:\s*: "Ref:" seguido de cero o más espacios.
-        # - ( ... ): Grupo de captura para el código.
-        #   - [a-zA-Z0-9.:\-\s]+: Coincide con uno o más caracteres que sean letras, números, puntos,
-        #     dos puntos, guiones O ESPACIOS. (Esto incluye el espacio '\s' que faltaba).
-        #   - +?: El cuantificador no codicioso. Crucial para que coincida hasta la *primera* secuencia de barras.
-        # - /+: Coincide con una o más barras (/, //, ///, etc.).
-        regex_patron = r"Ref:\s*([a-zA-Z0-9.:\-\s]+?)/+"
-
-        found_any_code = False # Bandera para verificar si se encontró y resaltó algún código
-
+        # Eliminar la definición de HIGHLIGHT_COLOR ya que volveremos al predeterminado
         # Define el color de resaltado (verde en este caso) como una tupla RGB (0.0 a 1.0)
         # Puedes cambiarlo a (1, 0, 0) para rojo, (0, 0, 1) para azul, etc.
-        HIGHLIGHT_COLOR = (0, 1, 0) # Verde
+        # HIGHLIGHT_COLOR = (0, 1, 0) # Verde
+
+        found_any_code = False # Bandera para verificar si se encontró y resaltó algún código
 
         for numero_pagina in range(doc.page_count):
             pagina = doc[numero_pagina]
             texto_pagina = pagina.get_text("text")
 
-            coincidencias = re.finditer(regex_patron, texto_pagina)
+            if specific_codes_list:
+                # Resaltado por lista de códigos específicos
+                for code_to_find in specific_codes_list:
+                    # Normalizar el código para la búsqueda (eliminar espacios extra)
+                    normalized_code = code_to_find.strip()
+                    if not normalized_code: # Saltar si el código está vacío después de normalizar
+                        continue
 
-            for coincidencia in coincidencias:
-                # El texto exacto que la regex capturó como el código
-                # IMPORTANTE: Eliminamos .strip() para que search_for reciba la cadena exacta
-                # incluyendo cualquier espacio o salto de línea que la regex haya capturado.
-                texto_a_resaltar = coincidencia.group(1) 
-                
-                print(f"DEBUG: Coincidencia de Regex completa: '{coincidencia.group(0).replace('\n', '\\n')}'") # Reemplazar \n para visualización en logs
-                print(f"DEBUG: Texto capturado para resaltar (grupo 1, sin strip): '{texto_a_resaltar.replace('\n', '\\n')}' en página {numero_pagina + 1}.")
-                
-                # Buscar las coordenadas del texto a resaltar
-                # Es crucial que 'texto_a_resaltar' coincida exactamente con el texto en el PDF.
-                # Si hay variaciones sutiles (espacios extra, caracteres especiales), search_for puede fallar.
-                rects_codigo = pagina.search_for(texto_a_resaltar)
-                
-                if rects_codigo: # Verifica si search_for realmente encontró algo
-                    for rect_codigo in rects_codigo:
-                        # Creamos la anotación de resaltado
-                        annot = pagina.add_highlight_annot(rect_codigo)
-                        # Luego, modificamos el color de la anotación usando el método set_colors()
-                        # 'stroke' es el color del borde y 'fill' es el color de relleno.
-                        # Para un resaltado, el color de relleno es el que importa.
-                        annot.set_colors(stroke=None, fill=HIGHLIGHT_COLOR)
-                        
-                        found_any_code = True
-                        print(f"DEBUG: Código '{texto_a_resaltar.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1}.")
-                        # Se eliminó la línea 'break' para que se resalten todas las ocurrencias
-                        # encontradas por search_for para este 'texto_a_resaltar' en la página.
-                else:
-                    print(f"DEBUG: NO se encontró el texto '{texto_a_resaltar.replace('\n', '\\n')}' para resaltar en página {numero_pagina + 1} (posiblemente por diferencias exactas en el texto o el layout del PDF).")
+                    print(f"DEBUG: Buscando código específico: '{normalized_code.replace('\n', '\\n')}' en página {numero_pagina + 1}.")
+                    rects_codigo = pagina.search_for(normalized_code)
+                    
+                    if rects_codigo:
+                        for rect_codigo in rects_codigo:
+                            # Volvemos a la forma simple de añadir resaltado, que usa el color predeterminado
+                            pagina.add_highlight_annot(rect_codigo) 
+                            found_any_code = True
+                            print(f"DEBUG: Código específico '{normalized_code.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1}.")
+                    else:
+                        print(f"DEBUG: NO se encontró el código específico '{normalized_code.replace('\n', '\\n')}' para resaltar en página {numero_pagina + 1}.")
+            else:
+                # Resaltado por expresión regular (comportamiento original)
+                regex_patron = r"Ref:\s*([a-zA-Z0-9.:\-\s]+?)/+"
+                coincidencias = re.finditer(regex_patron, texto_pagina)
+
+                for coincidencia in coincidencias:
+                    texto_a_resaltar = coincidencia.group(1) 
+                    
+                    print(f"DEBUG: Coincidencia de Regex completa: '{coincidencia.group(0).replace('\n', '\\n')}'")
+                    print(f"DEBUG: Texto capturado para resaltar (grupo 1, sin strip): '{texto_a_resaltar.replace('\n', '\\n')}' en página {numero_pagina + 1}.")
+                    
+                    rects_codigo = pagina.search_for(texto_a_resaltar)
+                    
+                    if rects_codigo:
+                        for rect_codigo in rects_codigo:
+                            # Volvemos a la forma simple de añadir resaltado, que usa el color predeterminado
+                            pagina.add_highlight_annot(rect_codigo) 
+                            found_any_code = True
+                            print(f"DEBUG: Código '{texto_a_resaltar.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1}.")
+                    else:
+                        print(f"DEBUG: NO se encontró el texto '{texto_a_resaltar.replace('\n', '\\n')}' para resaltar en página {numero_pagina + 1} (posiblemente por diferencias exactas en el texto o el layout del PDF).")
 
 
         doc.save(ruta_pdf_salida)
         doc.close()
         
-        # Verificar si el archivo realmente existe después de guardarlo
         if os.path.exists(ruta_pdf_salida):
             print(f"✅ PDF procesado y resaltado guardado exitosamente en: '{ruta_pdf_salida}'")
             return ruta_pdf_salida
@@ -124,7 +129,6 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida):
         return None
     except Exception as e:
         print(f"❌ Ocurrió un error al procesar '{ruta_pdf_entrada}': {e}")
-        # Imprimir la traza de la pila completa para una mejor depuración
         traceback.print_exc()
         return None
 
@@ -138,19 +142,16 @@ def upload_file():
     """Maneja la subida del archivo PDF, lo procesa y ofrece la descarga."""
     if 'pdf_file' not in request.files:
         flash('No se seleccionó ningún archivo.')
-        # Redirigir a la página principal en caso de error
         return redirect(url_for('index'))
     
     file = request.files['pdf_file']
     
     if file.filename == '':
         flash('No se seleccionó ningún archivo.')
-        # Redirigir a la página principal en caso de error
         return redirect(url_for('index'))
     
     if file and allowed_file(file.filename):
         filename = secure_filename(file.filename)
-        # Generar un nombre de archivo único para el archivo subido
         unique_filename_uploaded = f"{uuid.uuid4().hex}_{filename}"
         filepath_uploaded = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename_uploaded)
         file.save(filepath_uploaded)
@@ -158,7 +159,15 @@ def upload_file():
         print(f"DEBUG: Archivo subido guardado temporalmente en: '{filepath_uploaded}'")
         flash(f'Archivo "{filename}" subido exitosamente. Procesando...')
         
-        ruta_pdf_resaltado = procesar_pdf_y_resaltar_codigos(filepath_uploaded, app.config['PROCESSED_FOLDER'])
+        # Obtener los códigos específicos del formulario
+        specific_codes_input = request.form.get('specific_codes', '').strip()
+        specific_codes_list = []
+        if specific_codes_input:
+            specific_codes_list = [code.strip() for code in specific_codes_input.split(',') if code.strip()]
+            print(f"DEBUG: Códigos específicos recibidos del formulario: {specific_codes_list}")
+
+        # Pasar la lista de códigos específicos a la función de procesamiento
+        ruta_pdf_resaltado = procesar_pdf_y_resaltar_codigos(filepath_uploaded, app.config['PROCESSED_FOLDER'], specific_codes_list)
         
         # Eliminar el archivo subido original después de procesar
         try:
@@ -168,36 +177,27 @@ def upload_file():
             print(f"ERROR: No se pudo eliminar el archivo subido original '{filepath_uploaded}': {e}")
 
         if ruta_pdf_resaltado:
-            # Verificar si el archivo procesado existe antes de enviarlo
             if os.path.exists(ruta_pdf_resaltado):
                 print(f"DEBUG: Preparando para enviar el archivo procesado: '{ruta_pdf_resaltado}'")
                 flash('PDF procesado con éxito. Descarga tu archivo resaltado.')
-                # Usar un bloque try-except alrededor de send_file también para robustez
                 try:
                     return send_file(ruta_pdf_resaltado, as_attachment=True, download_name=f"resaltado_{filename}")
                 except Exception as e:
                     print(f"ERROR: Fallo al enviar el archivo '{ruta_pdf_resaltado}': {e}")
                     flash('Error al descargar el PDF procesado. Por favor, inténtalo de nuevo.')
-                    # Redirigir a la página principal en caso de error
                     return redirect(url_for('index'))
             else:
                 print(f"ERROR: ruta_pdf_resaltado es válida, pero el archivo no existe: '{ruta_pdf_resaltado}'")
                 flash('Error al procesar el PDF: El archivo de salida no se encontró.')
-                # Redirigir a la página principal en caso de error
                 return redirect(url_for('index'))
         else:
             flash('Error al procesar el PDF. Por favor, inténtalo de nuevo.')
-            # Redirigir a la página principal en caso de error
             return redirect(url_for('index'))
     else:
         flash('Tipo de archivo no permitido. Por favor, sube un archivo PDF.')
-        # Redirigir a la página principal en caso de error
         return redirect(url_for('index'))
 
 if __name__ == '__main__':
-    # Para despliegue en Railway, Gunicorn será el servidor.
-    # Para pruebas locales, puedes usar app.run().
-    # En Railway, el puerto será proporcionado por la variable de entorno PORT.
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=True, host='0.0.0.0', port=port)
 
