@@ -61,11 +61,6 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
     try:
         doc = fitz.open(ruta_pdf_entrada)
         
-        # Eliminar la definición de HIGHLIGHT_COLOR ya que volveremos al predeterminado
-        # Define el color de resaltado (verde en este caso) como una tupla RGB (0.0 a 1.0)
-        # Puedes cambiarlo a (1, 0, 0) para rojo, (0, 0, 1) para azul, etc.
-        # HIGHLIGHT_COLOR = (0, 1, 0) # Verde
-
         found_any_code = False # Bandera para verificar si se encontró y resaltó algún código
 
         for numero_pagina in range(doc.page_count):
@@ -75,38 +70,54 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
             if specific_codes_list:
                 # Resaltado por lista de códigos específicos
                 for code_to_find in specific_codes_list:
-                    # Normalizar el código para la búsqueda (eliminar espacios extra)
                     normalized_code = code_to_find.strip()
                     if not normalized_code: # Saltar si el código está vacío después de normalizar
                         continue
 
-                    print(f"DEBUG: Buscando código específico: '{normalized_code.replace('\n', '\\n')}' en página {numero_pagina + 1}.")
-                    rects_codigo = pagina.search_for(normalized_code)
+                    # Construir una regex para el código específico dentro del contexto "Ref: ... /"
+                    # re.escape() asegura que caracteres especiales en el código del usuario no rompan la regex
+                    # Añadimos \.? para permitir un punto opcional después del código
+                    # Y \s* para espacios opcionales antes de las barras finales
+                    specific_code_regex = r"Ref:\s*(" + re.escape(normalized_code) + r"\.?)\s*/+"
                     
-                    if rects_codigo:
-                        for rect_codigo in rects_codigo:
-                            # Volvemos a la forma simple de añadir resaltado, que usa el color predeterminado
-                            pagina.add_highlight_annot(rect_codigo) 
-                            found_any_code = True
-                            print(f"DEBUG: Código específico '{normalized_code.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1}.")
-                    else:
-                        print(f"DEBUG: NO se encontró el código específico '{normalized_code.replace('\n', '\\n')}' para resaltar en página {numero_pagina + 1}.")
+                    print(f"DEBUG: Regex para código específico: '{specific_code_regex}'")
+                    
+                    # Usar re.finditer para encontrar todas las ocurrencias contextuales
+                    contextual_matches = re.finditer(specific_code_regex, texto_pagina)
+
+                    for match in contextual_matches:
+                        # El texto exacto capturado por el grupo de la regex (el código con el posible punto)
+                        text_to_highlight_exact = match.group(1) 
+                        
+                        print(f"DEBUG: Coincidencia contextual para '{normalized_code}': '{match.group(0).replace('\n', '\\n')}'")
+                        print(f"DEBUG: Texto exacto a resaltar: '{text_to_highlight_exact.replace('\n', '\\n')}' en página {numero_pagina + 1}.")
+                        
+                        # Buscar las coordenadas del texto exacto a resaltar
+                        rects_codigo = pagina.search_for(text_to_highlight_exact)
+                        
+                        if rects_codigo:
+                            for rect_codigo in rects_codigo:
+                                pagina.add_highlight_annot(rect_codigo) 
+                                found_any_code = True
+                                print(f"DEBUG: Código específico '{text_to_highlight_exact.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1}.")
+                        else:
+                            print(f"DEBUG: NO se encontró el texto exacto '{text_to_highlight_exact.replace('\n', '\\n')}' para resaltar en página {numero_pagina + 1}.")
             else:
                 # Resaltado por expresión regular (comportamiento original)
+                # Esta regex se mantiene para la detección automática
                 regex_patron = r"Ref:\s*([a-zA-Z0-9.:\-\s]+?)/+"
                 coincidencias = re.finditer(regex_patron, texto_pagina)
 
                 for coincidencia in coincidencias:
                     texto_a_resaltar = coincidencia.group(1) 
                     
-                    print(f"DEBUG: Coincidencia de Regex completa: '{coincidencia.group(0).replace('\n', '\\n')}'")
-                    print(f"DEBUG: Texto capturado para resaltar (grupo 1, sin strip): '{texto_a_resaltar.replace('\n', '\\n')}' en página {numero_pagina + 1}.")
+                    print(f"DEBUG: Coincidencia de Regex completa (auto): '{coincidencia.group(0).replace('\n', '\\n')}'")
+                    print(f"DEBUG: Texto capturado para resaltar (grupo 1, sin strip, auto): '{texto_a_resaltar.replace('\n', '\\n')}' en página {numero_pagina + 1}.")
                     
                     rects_codigo = pagina.search_for(texto_a_resaltar)
                     
                     if rects_codigo:
                         for rect_codigo in rects_codigo:
-                            # Volvemos a la forma simple de añadir resaltado, que usa el color predeterminado
                             pagina.add_highlight_annot(rect_codigo) 
                             found_any_code = True
                             print(f"DEBUG: Código '{texto_a_resaltar.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1}.")
