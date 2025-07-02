@@ -5,6 +5,7 @@ from flask import Flask, request, render_template, send_file, redirect, url_for,
 from werkzeug.utils import secure_filename
 import uuid # Para generar nombres de archivo únicos
 import traceback # Para obtener trazas de error completas
+import tempfile # Importar el módulo tempfile
 
 app = Flask(__name__)
 # Una clave secreta es necesaria para usar flash messages (mensajes temporales)
@@ -12,13 +13,15 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'super_secret_key_por_defecto_local') 
 
 # Directorios para guardar archivos subidos y procesados
-# Estos directorios se crearán en el entorno de Railway también
-UPLOAD_FOLDER = 'uploads'
-PROCESSED_FOLDER = 'processed'
+# En Railway, /tmp es el directorio recomendado para archivos temporales y escribibles.
+# Usamos tempfile.gettempdir() para obtener la ruta del directorio temporal del sistema.
+UPLOAD_FOLDER = os.path.join(tempfile.gettempdir(), 'uploads')
+PROCESSED_FOLDER = os.path.join(tempfile.gettempdir(), 'processed')
 # Extensiones de archivo permitidas
 ALLOWED_EXTENSIONS = {'pdf'}
 
-# Crear los directorios si no existen al inicio de la aplicación
+# Crear los directorios si no existen.
+# Esto se ejecutará al inicio de la aplicación, y ahora los directorios estarán en /tmp, que es escribible.
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(PROCESSED_FOLDER, exist_ok=True)
 
@@ -249,28 +252,18 @@ if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=port)
 ```
 
-Entiendo que, a pesar de las últimas modificaciones, la aplicación sigue sin resaltar los códigos, o que el resaltado es incorrecto ("de más"). Esto sugiere que la lógica de búsqueda y reconstrucción de palabras para los códigos específicos aún necesita ser más precisa.
+Entiendo que la última actualización "se pasó de piña" y la aplicación ahora está fallando al iniciarse en Railway, como lo muestra la imagen de "CRASHED". Esto es un problema crítico de despliegue.
 
-He revisado el código en el Canvas. El problema principal en la lógica de búsqueda de códigos específicos (la que usa `get_text("words")`) es la **normalización de las palabras y la reconstrucción de la cadena**. Si la limpieza es demasiado agresiva (eliminando caracteres que sí son parte de los códigos) o si la reconstrucción de la cadena no coincide exactamente con cómo `fitz` "ve" el texto en el PDF, el resaltado fallará.
+El error `self.callable = self.load()` en los logs de Gunicorn, apuntando a `app.py`, línea 250 (que es `app.run(...)`), indica que el servidor web no puede iniciar la aplicación Flask. La causa más probable es que la aplicación está intentando crear directorios (`uploads`, `processed`) en una ubicación no escribible del sistema de archivos de Railway cuando se inicia. En entornos de PaaS como Railway, el directorio raíz de la aplicación suele ser de solo lectura.
 
-Para solucionar el problema de que "no encuentra nada" o "resalta de más", vamos a refinar la lógica de búsqueda de códigos específicos. La clave es que la normalización debe ser consistente y la reconstrucción debe ser precisa para que `fitz` pueda ubicar el texto.
+Para solucionar esto, debemos asegurarnos de que los directorios para archivos temporales (`uploads`, `processed`) se creen en una ubicación que Railway garantice que es escribible. El directorio `/tmp` es el lugar estándar para esto.
 
-He actualizado el Canvas `flask_app_py_current` con una lógica de búsqueda y reconstrucción más robusta para los códigos específicos.
+He actualizado el Canvas `flask_app_py_current` para corregir este problema.
 
-**Cambios Clave en `app.py` (dentro de `if specific_codes_list:`):**
+**Cambio Clave en `app.py`:**
 
-1.  **Normalización de Palabras y Código Objetivo:**
-    * `search_target_cleaned = normalized_code_input.lower().replace(' ', '')`: El código que el usuario busca se limpia de todos los espacios y se convierte a minúsculas. Esto es la "forma limpia" del código que queremos encontrar.
-    * `current_word_cleaned = current_word_text.lower().replace(' ', '')`: Cada palabra extraída del PDF se limpia de la misma manera.
-
-2.  **Lógica de Reconstrucción y Coincidencia:**
-    * La lógica de reconstrucción ahora concatena las palabras *limpias* (`reconstructed_cleaned_text + next_word_cleaned`).
-    * La comparación `search_target_cleaned.startswith(potential_reconstruction_cleaned)` asegura que solo se construya el código si las palabras consecutivas forman el inicio del código objetivo.
-    * La condición final `reconstructed_cleaned_text == search_target_cleaned` es la que verifica la coincidencia exacta de la cadena limpia.
-
-3.  **Ajuste del Índice `i`:** `i = j` después de una coincidencia asegura que el bucle principal no vuelva a procesar palabras que ya formaron parte de un código resaltado.
-
-Esta lógica es más fiable porque la comparación se hace sobre una forma normalizada y sin espacios del código, lo que debería manejar mejor los saltos de línea y las variaciones de espaciado en el PDF.
+* He importado el módulo `tempfile`.
+* Las variables `UPLOAD_FOLDER` y `PROCESSED_FOLDER` ahora se definen usando `os.path.join(tempfile.gettempdir(), 'uploads')` y `os.path.join(tempfile.gettempdir(), 'processed')` respectivamente. Esto asegura que estas carpetas se creen dentro del directorio temporal del sistema (`/tmp` en Railway), que es escribible.
 
 
 ```python
@@ -281,6 +274,7 @@ from flask import Flask, request, render_template, send_file, redirect, url_for,
 from werkzeug.utils import secure_filename
 import uuid # Para generar nombres de archivo únicos
 import traceback # Para obtener trazas de error completas
+import tempfile # Importar el módulo tempfile
 
 app = Flask(__name__)
 # Una clave secreta es necesaria para usar flash messages (mensajes temporales)
@@ -288,13 +282,15 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'super_secret_key_por_defecto_local') 
 
 # Directorios para guardar archivos subidos y procesados
-# Estos directorios se crearán en el entorno de Railway también
-UPLOAD_FOLDER = 'uploads'
-PROCESSED_FOLDER = 'processed'
+# En Railway, /tmp es el directorio recomendado para archivos temporales y escribibles.
+# Usamos tempfile.gettempdir() para obtener la ruta del directorio temporal del sistema.
+UPLOAD_FOLDER = os.path.join(tempfile.gettempdir(), 'uploads')
+PROCESSED_FOLDER = os.path.join(tempfile.gettempdir(), 'processed')
 # Extensiones de archivo permitidas
 ALLOWED_EXTENSIONS = {'pdf'}
 
-# Crear los directorios si no existen al inicio de la aplicación
+# Crear los directorios si no existen.
+# Esto se ejecutará al inicio de la aplicación, y ahora los directorios estarán en /tmp, que es escribible.
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(PROCESSED_FOLDER, exist_ok=True)
 
@@ -398,7 +394,6 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
                                     words_in_match.append(words[j])
                                     j += 1
                                 else:
-                                    # Si la siguiente palabra no es parte del código, o excede la longitud, romper
                                     break
                             
                             # Si el código reconstruido (limpio) coincide exactamente con el código buscado (limpio)
