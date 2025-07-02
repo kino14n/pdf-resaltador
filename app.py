@@ -80,63 +80,339 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
             if specific_codes_list:
                 # Resaltado por lista de códigos específicos (búsqueda de cadena exacta con manejo de saltos de línea)
                 for code_to_find in specific_codes_list:
-                    normalized_code = code_to_find.strip()
-                    if not normalized_code: # Saltar si el código está vacío después de normalizar
+                    normalized_code_input = code_to_find.strip()
+                    if not normalized_code_input: # Saltar si el código está vacío después de normalizar
                         continue
 
-                    # Pre-procesar el código a buscar: normalizar espacios y convertir a minúsculas
-                    # Mantener caracteres como puntos y guiones, ya que son parte de los códigos.
-                    search_lower_normalized = re.sub(r'\s+', ' ', normalized_code.lower()).strip()
+                    # Normalizar el código a buscar: convertir a minúsculas y eliminar TODOS los espacios
+                    # Esto permite que "MF06 10G" y "MF0610G" se busquen como "mf0610g"
+                    search_target_cleaned = normalized_code_input.lower().replace(' ', '')
                     
+                    print(f"DEBUG: Buscando código específico (target limpio): '{search_target_cleaned}' para original '{normalized_code_input}' en página {numero_pagina + 1}.")
+
                     # Iterar a través de las palabras de la página para encontrar el código
-                    # Usamos un bucle 'while' para poder ajustar 'i' manualmente
                     i = 0
                     while i < len(words):
                         current_word_text = words[i][4] # Texto original de la palabra
-                        # Normalizar la palabra actual para la comparación
-                        current_word_normalized = re.sub(r'\s+', ' ', current_word_text.lower()).strip()
+                        # Normalizar la palabra actual: convertir a minúsculas y eliminar TODOS los espacios
+                        current_word_cleaned = current_word_text.lower().replace(' ', '')
                         
                         # DEBUG: Mostrar la palabra actual que se está evaluando
-                        print(f"DEBUG: Página {numero_pagina + 1}, Palabra {i}: '{current_word_text}' (normalizada: '{current_word_normalized}')")
+                        # print(f"DEBUG: Página {numero_pagina + 1}, Palabra {i}: '{current_word_text}' (limpia: '{current_word_cleaned}')")
 
-                        # Si la palabra actual coincide con el inicio del código normalizado
-                        if search_lower_normalized.startswith(current_word_normalized):
-                            reconstructed_code_normalized = current_word_normalized
-                            start_word_index = i
+                        # Si la palabra actual (limpia) coincide con el inicio del código objetivo (limpio)
+                        if search_target_cleaned.startswith(current_word_cleaned):
+                            reconstructed_cleaned_text = current_word_cleaned
                             
-                            # Rectángulo combinado para el resaltado
-                            combined_rect = fitz.Rect(words[i][:4])
-
-                            # Continuar con las siguientes palabras para ver si forman el código completo
+                            # Almacenar las palabras originales y sus rectángulos para combinar
+                            words_in_match = [words[i]]
+                            
                             j = i + 1
                             while j < len(words):
                                 next_word_text = words[j][4]
-                                next_word_normalized = re.sub(r'\s+', ' ', next_word_text.lower()).strip()
+                                next_word_cleaned = next_word_text.lower().replace(' ', '')
                                 
-                                # Intentar añadir la siguiente palabra con un espacio en medio
-                                potential_reconstruction = reconstructed_code_normalized + " " + next_word_normalized
+                                potential_reconstruction_cleaned = reconstructed_cleaned_text + next_word_cleaned
                                 
-                                # Verificar si la siguiente palabra es parte del código normalizado
-                                # Y si la longitud de la reconstrucción no excede la del código buscado normalizado
-                                if search_lower_normalized.startswith(potential_reconstruction) and \
-                                   len(potential_reconstruction) <= len(search_lower_normalized):
+                                # Verificar si añadir la siguiente palabra (limpia) aún es parte del código objetivo (limpio)
+                                if search_target_cleaned.startswith(potential_reconstruction_cleaned) and \
+                                   len(potential_reconstruction_cleaned) <= len(search_target_cleaned):
                                     
-                                    reconstructed_code_normalized = potential_reconstruction
-                                    combined_rect |= fitz.Rect(words[j][:4]) # Combinar rectángulos
-                                    print(f"DEBUG:   Reconstruyendo (normalizado): '{reconstructed_code_normalized}' con '{next_word_normalized}'")
+                                    reconstructed_cleaned_text = potential_reconstruction_cleaned
+                                    words_in_match.append(words[j])
+                                    j += 1
+                                else:
+                                    break
+                            
+                            # Si el código reconstruido (limpio) coincide exactamente con el código buscado (limpio)
+                            if reconstructed_cleaned_text == search_target_cleaned:
+                                # Combinar los rectángulos de todas las palabras que formaron la coincidencia
+                                combined_rect = fitz.Rect(words_in_match[0][:4])
+                                for k in range(1, len(words_in_match)):
+                                    combined_rect |= fitz.Rect(words_in_match[k][:4])
+                                
+                                pagina.add_highlight_annot(combined_rect) 
+                                found_any_code = True
+                                print(f"DEBUG: Código específico '{normalized_code_input.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1} en coordenadas: {combined_rect}.")
+                                # Avanzar el índice 'i' para que el bucle exterior continúe después de las palabras ya usadas.
+                                i = j # Esto asegura que no se re-procesen las palabras que ya formaron parte de una coincidencia.
+                            else:
+                                # Si no hubo coincidencia completa, avanza 'i' a la siguiente palabra no procesada
+                                i += 1
+                        else:
+                            # Si la palabra actual no coincide con el inicio, avanza a la siguiente
+                            i += 1
+            else:
+                # Resaltado por expresión regular (comportamiento original si no se dan códigos específicos)
+                # Esta regex se mantiene para la detección automática de códigos "Ref: ... /"
+                regex_patron = r"Ref:\s*([a-zA-Z0-9.:\-\s]+?)/+"
+                coincidencias = re.finditer(regex_patron, texto_pagina_completo) # Usar texto_pagina_completo
+
+                for coincidencia in coincidencias:
+                    texto_a_resaltar = coincidencia.group(1) 
+                    
+                    print(f"DEBUG: Coincidencia de Regex completa (auto): '{coincidencia.group(0).replace('\n', '\\n')}'")
+                    print(f"DEBUG: Texto capturado para resaltar (grupo 1, sin strip, auto): '{texto_a_resaltar.replace('\n', '\\n')}' en página {numero_pagina + 1}.")
+                    
+                    rects_codigo = pagina.search_for(texto_a_resaltar)
+                    
+                    if rects_codigo:
+                        for rect_codigo in rects_codigo:
+                            pagina.add_highlight_annot(rect_codigo) 
+                            found_any_code = True
+                            print(f"DEBUG: Código '{texto_a_resaltar.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1}.")
+                    else:
+                        print(f"DEBUG: NO se encontró el texto '{texto_a_resaltar.replace('\n', '\\n')}' para resaltar en página {numero_pagina + 1} (posiblemente por diferencias exactas en el texto o el layout del PDF).")
+
+
+        doc.save(ruta_pdf_salida)
+        doc.close()
+        
+        if os.path.exists(ruta_pdf_salida):
+            print(f"✅ PDF procesado y resaltado guardado exitosamente en: '{ruta_pdf_salida}'")
+            return ruta_pdf_salida
+        else:
+            print(f"❌ ERROR: El archivo de salida no existe después de guardar: '{ruta_pdf_salida}'")
+            return None
+
+    except FileNotFoundError:
+        print(f"❌ Error: El archivo PDF de entrada no se encontró en la ruta: '{ruta_pdf_entrada}'")
+        return None
+    except Exception as e:
+        print(f"❌ Ocurrió un error al procesar '{ruta_pdf_entrada}': {e}")
+        traceback.print_exc()
+        return None
+
+@app.route('/')
+def index():
+    """Renderiza la página principal con el formulario de subida."""
+    return render_template('index.html')
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    """Maneja la subida del archivo PDF, lo procesa y ofrece la descarga."""
+    if 'pdf_file' not in request.files:
+        flash('No se seleccionó ningún archivo.')
+        return redirect(url_for('index'))
+    
+    file = request.files['pdf_file']
+    
+    if file.filename == '':
+        flash('No se seleccionó ningún archivo.')
+        return redirect(url_for('index'))
+    
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        unique_filename_uploaded = f"{uuid.uuid4().hex}_{filename}"
+        filepath_uploaded = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename_uploaded)
+        file.save(filepath_uploaded)
+        
+        print(f"DEBUG: Archivo subido guardado temporalmente en: '{filepath_uploaded}'")
+        flash(f'Archivo "{filename}" subido exitosamente. Procesando...')
+        
+        # Obtener los códigos específicos del formulario
+        specific_codes_input = request.form.get('specific_codes', '').strip()
+        specific_codes_list = []
+        if specific_codes_input:
+            specific_codes_list = [code.strip() for code in specific_codes_input.split(',') if code.strip()]
+            print(f"DEBUG: Códigos específicos recibidos del formulario: {specific_codes_list}")
+
+        # Pasar la lista de códigos específicos a la función de procesamiento
+        ruta_pdf_resaltado = procesar_pdf_y_resaltar_codigos(filepath_uploaded, app.config['PROCESSED_FOLDER'], specific_codes_list)
+        
+        # Eliminar el archivo subido original después de procesar
+        try:
+            os.remove(filepath_uploaded)
+            print(f"DEBUG: Archivo subido original eliminado: '{filepath_uploaded}'")
+        except Exception as e:
+            print(f"ERROR: No se pudo eliminar el archivo subido original '{filepath_uploaded}': {e}")
+
+        if ruta_pdf_resaltado:
+            if os.path.exists(ruta_pdf_resaltado):
+                print(f"DEBUG: Preparando para enviar el archivo procesado: '{ruta_pdf_resaltado}'")
+                flash('PDF procesado con éxito. Mostrando vista previa.')
+                # CAMBIO CLAVE: Mostrar el PDF en el navegador en lugar de forzar la descarga
+                return send_file(ruta_pdf_resaltado, mimetype='application/pdf')
+            else:
+                print(f"ERROR: ruta_pdf_resaltado es válida, pero el archivo no existe: '{ruta_pdf_resaltado}'")
+                flash('Error al procesar el PDF: El archivo de salida no se encontró.')
+                return redirect(url_for('index'))
+        else:
+            flash('Error al procesar el PDF. Por favor, inténtalo de nuevo.')
+            return redirect(url_for('index'))
+    else:
+        flash('Tipo de archivo no permitido. Por favor, sube un archivo PDF.')
+        return redirect(url_for('index'))
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=True, host='0.0.0.0', port=port)
+```
+
+Entiendo que, a pesar de las últimas modificaciones, la aplicación sigue sin resaltar los códigos, o que el resaltado es incorrecto ("de más"). Esto sugiere que la lógica de búsqueda y reconstrucción de palabras para los códigos específicos aún necesita ser más precisa.
+
+He revisado el código en el Canvas. El problema principal en la lógica de búsqueda de códigos específicos (la que usa `get_text("words")`) es la **normalización de las palabras y la reconstrucción de la cadena**. Si la limpieza es demasiado agresiva (eliminando caracteres que sí son parte de los códigos) o si la reconstrucción de la cadena no coincide exactamente con cómo `fitz` "ve" el texto en el PDF, el resaltado fallará.
+
+Para solucionar el problema de que "no encuentra nada" o "resalta de más", vamos a refinar la lógica de búsqueda de códigos específicos. La clave es que la normalización debe ser consistente y la reconstrucción debe ser precisa para que `fitz` pueda ubicar el texto.
+
+He actualizado el Canvas `flask_app_py_current` con una lógica de búsqueda y reconstrucción más robusta para los códigos específicos.
+
+**Cambios Clave en `app.py` (dentro de `if specific_codes_list:`):**
+
+1.  **Normalización de Palabras y Código Objetivo:**
+    * `search_target_cleaned = normalized_code_input.lower().replace(' ', '')`: El código que el usuario busca se limpia de todos los espacios y se convierte a minúsculas. Esto es la "forma limpia" del código que queremos encontrar.
+    * `current_word_cleaned = current_word_text.lower().replace(' ', '')`: Cada palabra extraída del PDF se limpia de la misma manera.
+
+2.  **Lógica de Reconstrucción y Coincidencia:**
+    * La lógica de reconstrucción ahora concatena las palabras *limpias* (`reconstructed_cleaned_text + next_word_cleaned`).
+    * La comparación `search_target_cleaned.startswith(potential_reconstruction_cleaned)` asegura que solo se construya el código si las palabras consecutivas forman el inicio del código objetivo.
+    * La condición final `reconstructed_cleaned_text == search_target_cleaned` es la que verifica la coincidencia exacta de la cadena limpia.
+
+3.  **Ajuste del Índice `i`:** `i = j` después de una coincidencia asegura que el bucle principal no vuelva a procesar palabras que ya formaron parte de un código resaltado.
+
+Esta lógica es más fiable porque la comparación se hace sobre una forma normalizada y sin espacios del código, lo que debería manejar mejor los saltos de línea y las variaciones de espaciado en el PDF.
+
+
+```python
+import fitz  # Importa PyMuPDF
+import re    # Importa el módulo de expresiones regulares
+import os    # Importa el módulo para operaciones del sistema de archivos
+from flask import Flask, request, render_template, send_file, redirect, url_for, flash
+from werkzeug.utils import secure_filename
+import uuid # Para generar nombres de archivo únicos
+import traceback # Para obtener trazas de error completas
+
+app = Flask(__name__)
+# Una clave secreta es necesaria para usar flash messages (mensajes temporales)
+# ¡IMPORTANTE! Para producción, usa una variable de entorno para esta clave.
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'super_secret_key_por_defecto_local') 
+
+# Directorios para guardar archivos subidos y procesados
+# Estos directorios se crearán en el entorno de Railway también
+UPLOAD_FOLDER = 'uploads'
+PROCESSED_FOLDER = 'processed'
+# Extensiones de archivo permitidas
+ALLOWED_EXTENSIONS = {'pdf'}
+
+# Crear los directorios si no existen al inicio de la aplicación
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(PROCESSED_FOLDER, exist_ok=True)
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['PROCESSED_FOLDER'] = PROCESSED_FOLDER
+
+def allowed_file(filename):
+    """Verifica si la extensión del archivo es permitida."""
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specific_codes_list=None):
+    """
+    Procesa un archivo PDF, busca códigos (ya sea por regex o por lista específica),
+    y crea un nuevo PDF con esos códigos resaltados.
+
+    Args:
+        ruta_pdf_entrada (str): La ruta completa al archivo PDF que se va a procesar.
+        directorio_salida (str): La ruta del directorio donde se guardará el PDF resaltado.
+        specific_codes_list (list, optional): Una lista de códigos específicos a resaltar.
+                                              Si se proporciona, se ignorará la regex.
+                                              Defaults to None.
+
+    Returns:
+        str: La ruta completa del archivo PDF resaltado si el procesamiento fue exitoso,
+             o None si hubo un error.
+    """
+    
+    nombre_pdf_original = os.path.basename(ruta_pdf_entrada)
+    # Generar un nombre de archivo único para el PDF de salida para evitar colisiones
+    nombre_pdf_salida = f"resaltado_{uuid.uuid4().hex}_{nombre_pdf_original}"
+    ruta_pdf_salida = os.path.join(directorio_salida, nombre_pdf_salida)
+
+    print(f"DEBUG: Intentando procesar PDF. Entrada: '{ruta_pdf_entrada}', Salida esperada: '{ruta_pdf_salida}'")
+    if specific_codes_list:
+        print(f"DEBUG: Modo de resaltado: Códigos específicos. Lista: {specific_codes_list}")
+    else:
+        print("DEBUG: Modo de resaltado: Regex.")
+
+    try:
+        doc = fitz.open(ruta_pdf_entrada)
+        
+        found_any_code = False # Bandera para verificar si se encontró y resaltó algún código
+
+        for numero_pagina in range(doc.page_count):
+            pagina = doc[numero_pagina]
+            
+            # Obtener todas las palabras de la página con sus coordenadas
+            # Cada 'w' es (x0, y0, x1, y1, word_text, block_no, line_no, word_no)
+            words = pagina.get_text("words") 
+            
+            # Depuración: Verificar si el texto de la página se extrajo
+            # Para la depuración general, aún podemos obtener el texto completo
+            texto_pagina_completo = pagina.get_text("text")
+            print(f"DEBUG: Texto extraído de la página {numero_pagina + 1} (longitud: {len(texto_pagina_completo)}). Primeros 100 caracteres: '{texto_pagina_completo[:100].replace('\n', '\\n')}'")
+            print(f"DEBUG: Número de palabras extraídas de la página {numero_pagina + 1}: {len(words)}")
+
+
+            if specific_codes_list:
+                # Resaltado por lista de códigos específicos (búsqueda de cadena exacta con manejo de saltos de línea)
+                for code_to_find in specific_codes_list:
+                    normalized_code_input = code_to_find.strip()
+                    if not normalized_code_input: # Saltar si el código está vacío después de normalizar
+                        continue
+
+                    # Normalizar el código a buscar: convertir a minúsculas y eliminar TODOS los espacios
+                    # Esto permite que "MF06 10G" y "MF0610G" se busquen como "mf0610g"
+                    search_target_cleaned = normalized_code_input.lower().replace(' ', '')
+                    
+                    print(f"DEBUG: Buscando código específico (target limpio): '{search_target_cleaned}' para original '{normalized_code_input}' en página {numero_pagina + 1}.")
+
+                    # Iterar a través de las palabras de la página para encontrar el código
+                    i = 0
+                    while i < len(words):
+                        current_word_text = words[i][4] # Texto original de la palabra
+                        # Normalizar la palabra actual: convertir a minúsculas y eliminar TODOS los espacios
+                        current_word_cleaned = current_word_text.lower().replace(' ', '')
+                        
+                        # DEBUG: Mostrar la palabra actual que se está evaluando
+                        # print(f"DEBUG: Página {numero_pagina + 1}, Palabra {i}: '{current_word_text}' (limpia: '{current_word_cleaned}')")
+
+                        # Si la palabra actual (limpia) coincide con el inicio del código objetivo (limpio)
+                        if search_target_cleaned.startswith(current_word_cleaned):
+                            reconstructed_cleaned_text = current_word_cleaned
+                            
+                            # Almacenar las palabras originales y sus rectángulos para combinar
+                            words_in_match = [words[i]]
+                            
+                            j = i + 1
+                            while j < len(words):
+                                next_word_text = words[j][4]
+                                next_word_cleaned = next_word_text.lower().replace(' ', '')
+                                
+                                potential_reconstruction_cleaned = reconstructed_cleaned_text + next_word_cleaned
+                                
+                                # Verificar si añadir la siguiente palabra (limpia) aún es parte del código objetivo (limpio)
+                                if search_target_cleaned.startswith(potential_reconstruction_cleaned) and \
+                                   len(potential_reconstruction_cleaned) <= len(search_target_cleaned):
+                                    
+                                    reconstructed_cleaned_text = potential_reconstruction_cleaned
+                                    words_in_match.append(words[j])
                                     j += 1
                                 else:
                                     # Si la siguiente palabra no es parte del código, o excede la longitud, romper
                                     break
                             
-                            # Si el código reconstruido (normalizado) coincide con el código buscado (normalizado)
-                            if reconstructed_code_normalized == search_lower_normalized:
-                                # Resaltar el rectángulo combinado
+                            # Si el código reconstruido (limpio) coincide exactamente con el código buscado (limpio)
+                            if reconstructed_cleaned_text == search_target_cleaned:
+                                # Combinar los rectángulos de todas las palabras que formaron la coincidencia
+                                combined_rect = fitz.Rect(words_in_match[0][:4])
+                                for k in range(1, len(words_in_match)):
+                                    combined_rect |= fitz.Rect(words_in_match[k][:4])
+                                
                                 pagina.add_highlight_annot(combined_rect) 
                                 found_any_code = True
-                                print(f"DEBUG: Código específico '{normalized_code.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1} en coordenadas: {combined_rect}.")
-                                # Ajustamos el índice 'i' para que el bucle exterior continúe después de las palabras ya usadas.
-                                i = j # Avanza 'i' al final de la secuencia encontrada
+                                print(f"DEBUG: Código específico '{normalized_code_input.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1} en coordenadas: {combined_rect}.")
+                                # Avanzar el índice 'i' para que el bucle exterior continúe después de las palabras ya usadas.
+                                i = j # Esto asegura que no se re-procesen las palabras que ya formaron parte de una coincidencia.
                             else:
                                 # Si no hubo coincidencia completa, avanza 'i' a la siguiente palabra no procesada
                                 i += 1
