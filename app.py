@@ -66,6 +66,10 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
         for numero_pagina in range(doc.page_count):
             pagina = doc[numero_pagina]
             texto_pagina = pagina.get_text("text")
+            
+            # NUEVA LÍNEA DE DEPURACIÓN: Verificar si el texto de la página se extrajo
+            print(f"DEBUG: Texto extraído de la página {numero_pagina + 1} (longitud: {len(texto_pagina)}). Primeros 100 caracteres: '{texto_pagina[:100].replace('\n', '\\n')}'")
+
 
             if specific_codes_list:
                 # Resaltado por lista de códigos específicos
