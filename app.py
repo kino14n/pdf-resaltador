@@ -74,6 +74,7 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
             # Para la depuración general, aún podemos obtener el texto completo
             texto_pagina_completo = pagina.get_text("text")
             print(f"DEBUG: Texto extraído de la página {numero_pagina + 1} (longitud: {len(texto_pagina_completo)}). Primeros 100 caracteres: '{texto_pagina_completo[:100].replace('\n', '\\n')}'")
+            print(f"DEBUG: Número de palabras extraídas de la página {numero_pagina + 1}: {len(words)}")
 
 
             if specific_codes_list:
@@ -90,6 +91,9 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
                     for i in range(len(words)):
                         current_word_text = words[i][4].lower() # Texto de la palabra actual
                         
+                        # DEBUG: Mostrar la palabra actual que se está evaluando
+                        # print(f"DEBUG: Página {numero_pagina + 1}, Palabra {i}: '{current_word_text}'")
+
                         # Si la palabra actual coincide con el inicio del código
                         if search_lower.startswith(current_word_text):
                             # Intentar construir el código completo a partir de esta palabra
@@ -105,12 +109,16 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
                                 next_word_text = words[j][4].lower()
                                 
                                 # Verificar si la siguiente palabra es parte del código
-                                if search_lower.startswith(reconstructed_code + next_word_text):
+                                # También verificar si la palabra actual + siguiente palabra no excede la longitud del código buscado
+                                if search_lower.startswith(reconstructed_code + next_word_text) and \
+                                   len(reconstructed_code + next_word_text) <= len(search_lower):
                                     reconstructed_code += next_word_text
                                     end_word_index = j
                                     combined_rect |= fitz.Rect(words[j][:4]) # Combinar rectángulos
+                                    # DEBUG: Mostrar la reconstrucción del código
+                                    # print(f"DEBUG:   Reconstruyendo: '{reconstructed_code}'")
                                 else:
-                                    # Si la siguiente palabra no es parte del código, romper
+                                    # Si la siguiente palabra no es parte del código, o excede la longitud, romper
                                     break
                             
                             # Si el código reconstruido coincide con el código buscado
