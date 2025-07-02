@@ -69,35 +69,82 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
         for numero_pagina in range(doc.page_count):
             pagina = doc[numero_pagina]
             
-            # Obtener el texto completo de la página
-            texto_pagina_completo = pagina.get_text("text")
+            # Obtener todas las palabras de la página con sus coordenadas
+            # Cada 'w' es (x0, y0, x1, y1, word_text, block_no, line_no, word_no)
+            words = pagina.get_text("words") 
             
             # Depuración: Verificar si el texto de la página se extrajo
+            # Para la depuración general, aún podemos obtener el texto completo
+            texto_pagina_completo = pagina.get_text("text")
             print(f"DEBUG: Texto extraído de la página {numero_pagina + 1} (longitud: {len(texto_pagina_completo)}). Primeros 100 caracteres: '{texto_pagina_completo[:100].replace('\n', '\\n')}'")
+            print(f"DEBUG: Número de palabras extraídas de la página {numero_pagina + 1}: {len(words)}")
 
 
             if specific_codes_list:
-                # Resaltado por lista de códigos específicos (búsqueda de cadena exacta)
+                # Resaltado por lista de códigos específicos (búsqueda de cadena exacta con manejo de saltos de línea)
                 for code_to_find in specific_codes_list:
-                    # Normalizar el código para la búsqueda (eliminar espacios extra al inicio/final)
-                    normalized_code = code_to_find.strip()
-                    if not normalized_code: # Saltar si el código está vacío después de normalizar
+                    normalized_code_input = code_to_find.strip()
+                    if not normalized_code_input: # Saltar si el código está vacío después de normalizar
                         continue
 
-                    # Usamos search_for directamente con el código normalizado.
-                    # Esto buscará la cadena exacta en cualquier parte de la página.
-                    # Nota: Si el código está partido por un salto de línea en el PDF (ej. "MF06\n10G"),
-                    # y buscas "MF0610G", search_for NO lo encontrará.
-                    print(f"DEBUG: Buscando código específico (coincidencia exacta con search_for): '{normalized_code.replace('\n', '\\n')}' en página {numero_pagina + 1}.")
-                    rects_codigo = pagina.search_for(normalized_code)
+                    # Normalizar el código a buscar: convertir a minúsculas y eliminar TODOS los espacios
+                    # Esto permite que "MF06 10G" y "MF0610G" se busquen como "mf0610g"
+                    search_target_flat = normalized_code_input.lower().replace(' ', '')
                     
-                    if rects_codigo:
-                        for rect_codigo in rects_codigo:
-                            pagina.add_highlight_annot(rect_codigo) 
-                            found_any_code = True
-                            print(f"DEBUG: Código específico '{normalized_code.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1} en coordenadas: {rect_codigo}.")
-                    else:
-                        print(f"DEBUG: NO se encontró el código específico '{normalized_code.replace('\n', '\\n')}' para resaltar en página {numero_pagina + 1}.")
+                    print(f"DEBUG: Buscando código específico (target plano): '{search_target_flat}' para original '{normalized_code_input}' en página {numero_pagina + 1}.")
+
+                    # Iterar a través de las palabras de la página para encontrar el código
+                    i = 0
+                    while i < len(words):
+                        current_word_text = words[i][4] # Texto original de la palabra
+                        # Normalizar la palabra actual: convertir a minúsculas y eliminar TODOS los espacios
+                        current_word_flat = current_word_text.lower().replace(' ', '')
+                        
+                        # DEBUG: Mostrar la palabra actual que se está evaluando
+                        # print(f"DEBUG: Página {numero_pagina + 1}, Palabra {i}: '{current_word_text}' (plana: '{current_word_flat}')")
+
+                        # Si la palabra actual (plana) coincide con el inicio del código objetivo (plano)
+                        if search_target_flat.startswith(current_word_flat):
+                            reconstructed_flat_text = current_word_flat
+                            
+                            # Almacenar las palabras originales y sus rectángulos para combinar
+                            rects_in_match = [fitz.Rect(words[i][:4])]
+                            
+                            j = i + 1
+                            while j < len(words):
+                                next_word_text = words[j][4]
+                                next_word_flat = next_word_text.lower().replace(' ', '')
+                                
+                                potential_reconstruction_flat = reconstructed_flat_text + next_word_flat
+                                
+                                # Verificar si añadir la siguiente palabra (plana) aún es parte del código objetivo (plano)
+                                if search_target_flat.startswith(potential_reconstruction_flat) and \
+                                   len(potential_reconstruction_flat) <= len(search_target_flat):
+                                    
+                                    reconstructed_flat_text = potential_reconstruction_flat
+                                    rects_in_match.append(fitz.Rect(words[j][:4]))
+                                    j += 1
+                                else:
+                                    break # Detener la extensión de la secuencia si la siguiente palabra no encaja
+                            
+                            # Si el código reconstruido (plano) coincide exactamente con el código buscado (plano)
+                            if reconstructed_flat_text == search_target_flat:
+                                # Combinar los rectángulos de todas las palabras que formaron la coincidencia
+                                combined_rect = rects_in_match[0]
+                                for k in range(1, len(rects_in_match)):
+                                    combined_rect |= rects_in_match[k]
+                                
+                                pagina.add_highlight_annot(combined_rect) 
+                                found_any_code = True
+                                print(f"DEBUG: Código específico '{normalized_code_input.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1} en coordenadas: {combined_rect}.")
+                                # Avanzar el índice 'i' para que el bucle exterior continúe después de las palabras ya usadas.
+                                i = j # Mover 'i' a la palabra *después* de la última usada en esta coincidencia
+                            else:
+                                # Si no hubo coincidencia completa, avanza 'i' a la siguiente palabra no procesada
+                                i += 1
+                        else:
+                            # Si la palabra actual no coincide con el inicio, avanza a la siguiente
+                            i += 1
             else:
                 # Resaltado por expresión regular (comportamiento original si no se dan códigos específicos)
                 # Esta regex se mantiene para la detección automática de códigos "Ref: ... /"
