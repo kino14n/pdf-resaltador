@@ -65,39 +65,68 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
 
         for numero_pagina in range(doc.page_count):
             pagina = doc[numero_pagina]
-            texto_pagina = pagina.get_text("text")
+            
+            # Obtener todas las palabras de la página con sus coordenadas
+            # Cada 'w' es (x0, y0, x1, y1, word_text, block_no, line_no, word_no)
+            words = pagina.get_text("words") 
             
             # Depuración: Verificar si el texto de la página se extrajo
-            print(f"DEBUG: Texto extraído de la página {numero_pagina + 1} (longitud: {len(texto_pagina)}). Primeros 100 caracteres: '{texto_pagina[:100].replace('\n', '\\n')}'")
+            # Para la depuración general, aún podemos obtener el texto completo
+            texto_pagina_completo = pagina.get_text("text")
+            print(f"DEBUG: Texto extraído de la página {numero_pagina + 1} (longitud: {len(texto_pagina_completo)}). Primeros 100 caracteres: '{texto_pagina_completo[:100].replace('\n', '\\n')}'")
 
 
             if specific_codes_list:
-                # Resaltado por lista de códigos específicos (búsqueda de cadena exacta)
+                # Resaltado por lista de códigos específicos (búsqueda de cadena exacta con manejo de saltos de línea)
                 for code_to_find in specific_codes_list:
-                    # Normalizar el código para la búsqueda (eliminar espacios extra al inicio/final)
                     normalized_code = code_to_find.strip()
                     if not normalized_code: # Saltar si el código está vacío después de normalizar
                         continue
 
-                    # Volvemos a usar search_for directamente con el código normalizado.
-                    # Esto buscará la cadena exacta en cualquier parte de la página.
-                    # Nota: Si el código está partido por un salto de línea en el PDF (ej. "MF06\n10G"),
-                    # y buscas "MF0610G", search_for NO lo encontrará.
-                    print(f"DEBUG: Buscando código específico (coincidencia exacta con search_for): '{normalized_code.replace('\n', '\\n')}' en página {numero_pagina + 1}.")
-                    rects_codigo = pagina.search_for(normalized_code)
+                    # Convertir el código a buscar a minúsculas para una búsqueda insensible a mayúsculas/minúsculas
+                    search_lower = normalized_code.lower()
                     
-                    if rects_codigo:
-                        for rect_codigo in rects_codigo:
-                            pagina.add_highlight_annot(rect_codigo) 
-                            found_any_code = True
-                            print(f"DEBUG: Código específico '{normalized_code.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1} en coordenadas: {rect_codigo}.")
-                    else:
-                        print(f"DEBUG: NO se encontró el código específico '{normalized_code.replace('\n', '\\n')}' para resaltar en página {numero_pagina + 1}.")
+                    # Iterar a través de las palabras de la página para encontrar el código
+                    for i in range(len(words)):
+                        current_word_text = words[i][4].lower() # Texto de la palabra actual
+                        
+                        # Si la palabra actual coincide con el inicio del código
+                        if search_lower.startswith(current_word_text):
+                            # Intentar construir el código completo a partir de esta palabra
+                            reconstructed_code = current_word_text
+                            start_word_index = i
+                            end_word_index = i
+                            
+                            # Combinar rectángulos para el resaltado
+                            combined_rect = fitz.Rect(words[i][:4]) # Rectángulo de la primera palabra
+
+                            # Continuar con las siguientes palabras para ver si forman el código completo
+                            for j in range(i + 1, len(words)):
+                                next_word_text = words[j][4].lower()
+                                
+                                # Verificar si la siguiente palabra es parte del código
+                                if search_lower.startswith(reconstructed_code + next_word_text):
+                                    reconstructed_code += next_word_text
+                                    end_word_index = j
+                                    combined_rect |= fitz.Rect(words[j][:4]) # Combinar rectángulos
+                                else:
+                                    # Si la siguiente palabra no es parte del código, romper
+                                    break
+                            
+                            # Si el código reconstruido coincide con el código buscado
+                            if reconstructed_code == search_lower:
+                                # Resaltar el rectángulo combinado
+                                pagina.add_highlight_annot(combined_rect) 
+                                found_any_code = True
+                                print(f"DEBUG: Código específico '{normalized_code.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1} en coordenadas: {combined_rect}.")
+                                # Para evitar resaltar la misma instancia si hay superposiciones,
+                                # podríamos avanzar 'i' hasta 'end_word_index', pero para simplicidad,
+                                # lo dejamos así por ahora.
             else:
                 # Resaltado por expresión regular (comportamiento original si no se dan códigos específicos)
                 # Esta regex se mantiene para la detección automática de códigos "Ref: ... /"
                 regex_patron = r"Ref:\s*([a-zA-Z0-9.:\-\s]+?)/+"
-                coincidencias = re.finditer(regex_patron, texto_pagina)
+                coincidencias = re.finditer(regex_patron, texto_pagina_completo) # Usar texto_pagina_completo
 
                 for coincidencia in coincidencias:
                     texto_a_resaltar = coincidencia.group(1) 
