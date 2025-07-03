@@ -35,11 +35,9 @@ def allowed_file(filename):
 
 def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specific_codes_list=None):
     """
-    Procesa un archivo PDF, busca códigos (ya sea por regex o por lista específica),
-    y crea un nuevo PDF con esos códigos resaltados.
-    Esta versión está mejorada para encontrar códigos con saltos de línea.
+    Procesa un archivo PDF para encontrar y resaltar códigos, incluyendo aquellos
+    que están partidos por saltos de línea.
     """
-    
     nombre_pdf_original = os.path.basename(ruta_pdf_entrada)
     nombre_pdf_salida = f"resaltado_{uuid.uuid4().hex}_{nombre_pdf_original}"
     ruta_pdf_salida = os.path.join(directorio_salida, nombre_pdf_salida)
@@ -54,74 +52,121 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
         doc = fitz.open(ruta_pdf_entrada)
         found_any_code = False
 
-        for numero_pagina in range(doc.page_count):
-            pagina = doc[numero_pagina]
-            
-            # Obtener el texto completo de la página
-            texto_pagina_completo = pagina.get_text("text")
-            
-            # Depuración: Verificar si el texto de la página se extrajo
-            print(f"DEBUG: Texto extraído de la página {numero_pagina + 1} (longitud: {len(texto_pagina_completo)}). Primeros 100 caracteres: '{texto_pagina_completo[:100].replace('\n', '\\n')}'")
-
-
-            if specific_codes_list:
-                # Resaltado por lista de códigos específicos (búsqueda de cadena exacta)
-                for code_to_find in specific_codes_list:
-                    # Normalizar el código para la búsqueda (eliminar espacios extra al inicio/final)
-                    normalized_code = code_to_find.strip()
-                    if not normalized_code: # Saltar si el código está vacío después de normalizar
-                        continue
-
-                    # Usamos search_for directamente con el código normalizado.
-                    # Esto buscará la cadena exacta en cualquier parte de la página.
-                    # Nota: Si el código está partido por un salto de línea en el PDF (ej. "MF06\n10G"),
-                    # y buscas "MF0610G", search_for NO lo encontrará.
-                    print(f"DEBUG: Buscando código específico (coincidencia exacta con search_for): '{normalized_code.replace('\n', '\\n')}' en página {numero_pagina + 1}.")
-                    rects_codigo = pagina.search_for(normalized_code)
-                    
-                    if rects_codigo:
-                        for rect_codigo in rects_codigo:
-                            pagina.add_highlight_annot(rect_codigo) 
-                            found_any_code = True
-                            print(f"DEBUG: Código específico '{normalized_code.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1} en coordenadas: {rect_codigo}.")
-                    else:
-                        print(f"DEBUG: NO se encontró el código específico '{normalized_code.replace('\n', '\\n')}' para resaltar en página {numero_pagina + 1}.")
-            else:
-                # Resaltado por expresión regular (comportamiento original si no se dan códigos específicos)
-                # Esta regex se mantiene para la detección automática de códigos "Ref: ... /"
-                regex_patron = r"Ref:\s*([a-zA-Z0-9.:\-\s]+?)/+"
-                coincidencias = re.finditer(regex_patron, texto_pagina_completo) # Usar texto_pagina_completo
-
-                for coincidencia in coincidencias:
-                    texto_a_resaltar = coincidencia.group(1) 
-                    
-                    print(f"DEBUG: Coincidencia de Regex completa (auto): '{coincidencia.group(0).replace('\n', '\\n')}'")
-                    print(f"DEBUG: Texto capturado para resaltar (grupo 1, sin strip, auto): '{texto_a_resaltar.replace('\n', '\\n')}' en página {numero_pagina + 1}.")
-                    
-                    rects_codigo = pagina.search_for(texto_a_resaltar)
-                    
-                    if rects_codigo:
-                        for rect_codigo in rects_codigo:
-                            pagina.add_highlight_annot(rect_codigo) 
-                            found_any_code = True
-                            print(f"DEBUG: Código '{texto_a_resaltar.replace('\n', '\\n')}' resaltado en página {numero_pagina + 1}.")
-                    else:
-                        print(f"DEBUG: NO se encontró el texto '{texto_a_resaltar.replace('\n', '\\n')}' para resaltar en página {numero_pagina + 1} (posiblemente por diferencias exactas en el texto o el layout del PDF).")
-
-
-        doc.save(ruta_pdf_salida, garbage=4) # Mantenemos garbage=4 para evitar la página en blanco
-        doc.close()
+        # Prepara la lista de códigos a buscar una sola vez (si son específicos)
+        # En modo automático, se construirán por página.
+        codes_to_find_global = []
+        if specific_codes_list:
+            codes_to_find_global = [code.strip() for code in specific_codes_list if code.strip()]
         
-        if os.path.exists(ruta_pdf_salida):
-            print(f"✅ PDF procesado y resaltado guardado exitosamente en: '{ruta_pdf_salida}'")
-            return ruta_pdf_salida
-        else:
-            print(f"❌ ERROR: El archivo de salida no existe después de guardar: '{ruta_pdf_salida}'")
-            return None
+        if not specific_codes_list and not codes_to_find_global:
+            print("INFO: No se proporcionaron códigos específicos y el modo automático está activo.")
+            # Si no hay códigos específicos, la lógica de auto-detección se ejecutará por página.
 
-    except FileNotFoundError:
-        print(f"❌ Error: El archivo PDF de entrada no se encontró en la ruta: '{ruta_pdf_entrada}'")
-        return None
+        for numero_pagina, pagina in enumerate(doc):
+            print(f"DEBUG: Procesando página {numero_pagina + 1}/{doc.page_count}")
+            
+            # 1. Extraer palabras con sus coordenadas
+            words = pagina.get_text("words")
+            if not words:
+                print(f"DEBUG: Página {numero_pagina + 1} no contiene palabras.")
+                continue
+
+            # Determinar códigos a buscar para ESTA página (ya sea específicos o auto-detectados)
+            codes_to_find_on_current_page = []
+            if specific_codes_list:
+                codes_to_find_on_current_page = codes_to_find_global # Usar la lista global si son específicos
+            else:
+                # Si es modo automático, encontrar los códigos con regex para esta página
+                texto_pagina_completo = pagina.get_text("text")
+                regex_patron = r"Ref:\s*([\w.:-]+(?:[\s-]*[\w.:-]+)*)" # Regex más flexible
+                for match in re.finditer(regex_patron, texto_pagina_completo):
+                    # Normalizar el código encontrado por la regex (quitar espacios y convertir a plano)
+                    codigo_normalizado_regex = re.sub(r'\s+', '', match.group(1)).lower()
+                    if codigo_normalizado_regex:
+                        codes_to_find_on_current_page.append(codigo_normalizado_regex)
+            
+            if not codes_to_find_on_current_page:
+                continue
+
+            # 2. Iterar sobre los códigos a buscar en la página actual
+            for code_original_input in codes_to_find_on_current_page:
+                # Normalizamos el código objetivo para una comparación robusta (sin espacios y en minúsculas)
+                flat_target_code = re.sub(r'\s+', '', code_original_input).lower()
+                if not flat_target_code:
+                    continue
+                
+                print(f"DEBUG: Buscando código (target plano): '{flat_target_code}' (original: '{code_original_input}') en página {numero_pagina + 1}.")
+
+                # 3. Buscar secuencias de palabras que coincidan con el código
+                # 'i' es el índice de inicio para una posible coincidencia en la lista 'words'
+                i = 0
+                while i < len(words):
+                    current_sequence_words_data = [] # Almacena (word_text, word_rect) para la secuencia actual
+                    flat_current_sequence = ""       # Almacena el texto aplanado de la secuencia actual
+
+                    # 'j' extiende la secuencia desde 'i'
+                    for j in range(i, len(words)):
+                        word_text = words[j][4]
+                        word_rect = fitz.Rect(words[j][:4])
+                        
+                        flat_word_text = re.sub(r'\s+', '', word_text).lower()
+
+                        # Construir la secuencia aplanada
+                        flat_current_sequence += flat_word_text
+                        current_sequence_words_data.append((word_text, word_rect)) # Almacenar datos originales de la palabra
+
+                        # DEBUG:
+                        # print(f"SEC_DEBUG: P{numero_pagina+1} W{i}-{j}: Flat seq: '{flat_current_sequence}' (Target: '{flat_target_code}')")
+
+                        # Comprobar si la secuencia aplanada actual es un prefijo del código objetivo
+                        # Y si no es más larga que el código objetivo
+                        if flat_target_code.startswith(flat_current_sequence) and \
+                           len(flat_current_sequence) <= len(flat_target_code):
+                            
+                            # Si la secuencia aplanada coincide EXACTAMENTE con el código objetivo
+                            if flat_current_sequence == flat_target_code:
+                                # ¡Coincidencia encontrada! Combinar rectángulos y resaltar
+                                combined_rect = fitz.Rect()
+                                for _, rect in current_sequence_words_data: # Usar rectángulos originales almacenados
+                                    combined_rect |= rect
+                                
+                                pagina.add_highlight_annot(combined_rect)
+                                found_any_code = True
+                                print(f"✅ CÓDIGO ENCONTRADO Y RESALTADO: '{code_original_input}' en página {numero_pagina + 1} en coordenadas: {combined_rect}.")
+                                
+                                # Mover el índice de inicio 'i' más allá de la coincidencia actual
+                                # para buscar ocurrencias subsiguientes sin superposición.
+                                i = j + 1 
+                                break # Salir del bucle interno 'j' para iniciar una nueva búsqueda desde 'i'
+                        else:
+                            # Si la secuencia actual ya no es un prefijo del objetivo,
+                            # o si es más larga, entonces este camino no llevará a una coincidencia.
+                            break # Salir del bucle interno 'j' y probar con la siguiente palabra inicial 'i'
+                    else: # Este 'else' pertenece al bucle 'for j', se ejecuta si el bucle 'j' termina sin 'break'
+                        # Si el bucle 'j' terminó sin encontrar una coincidencia completa para la 'i' actual,
+                        # entonces avanzamos 'i' para probar la siguiente palabra como inicio.
+                        i += 1
+                        continue # Continuar el bucle 'while i'
+                    
+                    # Si se encontró una coincidencia y se ejecutó 'break' en el bucle 'j',
+                    # el índice 'i' ya fue actualizado. Necesitamos asegurar que el bucle 'while i'
+                    # continúe desde el nuevo 'i'.
+                    # Si el 'break' del bucle 'j' se ejecutó, el 'i' ya fue ajustado,
+                    # así que no necesitamos 'i += 1' aquí.
+                    # Si el 'break' no se ejecutó (y el 'else' del 'for j' sí), 'i' ya fue incrementado.
+                    # Por lo tanto, no necesitamos un 'i += 1' explícito aquí.
+                    pass # El control de 'i' se maneja dentro del bucle 'j' o en su 'else'
+
+        if found_any_code:
+            print("INFO: Guardando PDF con códigos resaltados...")
+            doc.save(ruta_pdf_salida, garbage=4, deflate=True) # Mantenemos garbage=4 y deflate=True para limpieza
+        else:
+            print("INFO: No se encontraron códigos. Guardando el PDF original sin cambios.")
+            doc.save(ruta_pdf_salida) # Guardar original si no hay cambios, o puedes optar por no guardar nada
+
+        doc.close()
+        return ruta_pdf_salida
+
     except Exception as e:
         print(f"❌ Ocurrió un error al procesar '{ruta_pdf_entrada}': {e}")
         traceback.print_exc()
