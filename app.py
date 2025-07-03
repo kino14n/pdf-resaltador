@@ -137,7 +137,8 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
                     # break # Eliminado para permitir múltiples resaltados del mismo código en la misma página.
 
 
-        doc.save(ruta_pdf_salida)
+        # CAMBIO CLAVE: Guardar el PDF con garbage=4 para asegurar una salida limpia
+        doc.save(ruta_pdf_salida, garbage=4) 
         doc.close()
         
         if os.path.exists(ruta_pdf_salida):
