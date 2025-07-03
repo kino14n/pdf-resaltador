@@ -126,6 +126,9 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
                     # DEBUG:
                     # print(f"SEC_DEBUG: P{numero_pagina+1} W{i}-{j}: '{seq_original}' -> Flat: '{flat_seq}'")
 
+                    # AÑADE ESTA LÍNEA PARA VER LA COMPARACIÓN
+                    print(f"Comparando: '{flat_seq}' | ¿Está en?: {current_page_codes_to_find}")
+
                     # Comprobar si la secuencia aplanada construida es un prefijo de algún código objetivo
                     # Esto es para la "poda" de secuencias.
                     is_prefix_of_any_target = False
