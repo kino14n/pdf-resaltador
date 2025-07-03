@@ -54,19 +54,14 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
         doc = fitz.open(ruta_pdf_entrada)
         found_any_code = False
 
-        # Prepara la lista de códigos a buscar y su longitud máxima
+        # Prepara la lista de códigos a buscar
         codes_to_find = []
-        max_code_length = 0 # Inicializa la longitud máxima
-
         if specific_codes_list:
             for code in specific_codes_list:
-                c = re.sub(r'\s+', '', code.strip()).lower() # Normaliza el código a buscar
+                # Normalización mejorada: elimina espacios y guiones para la comparación
+                c = re.sub(r'[\s-]+', '', code.strip()).lower()
                 if c:
                     codes_to_find.append(c)
-                    max_code_length = max(max_code_length, len(c)) # Actualiza la longitud máxima
-        
-        # Si no hay códigos específicos, usamos la lógica de regex para auto-detección
-        # La regex se aplicará por página para obtener los códigos a buscar en esa página.
         
         # Si no hay códigos para buscar (ni específicos ni por auto-detección inicial),
         # podemos cerrar el documento y salir.
@@ -79,15 +74,17 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
         for numero_pagina, pagina in enumerate(doc):
             print(f"DEBUG: Procesando página {numero_pagina + 1}/{doc.page_count}")
             
+            # 1. Extraer todas las palabras con sus coordenadas (rectángulos)
             words = pagina.get_text("words")
             if not words:
                 print(f"DEBUG: Página {numero_pagina + 1} no contiene palabras.")
                 continue
 
+            n_words = len(words)
+            
             # Si es modo automático (no se dieron specific_codes_list),
             # construimos los codes_to_find para esta página usando la regex.
             current_page_codes_to_find = list(codes_to_find) # Copia la lista global si hay específicos
-            current_page_max_code_length = max_code_length # Copia la longitud máxima global
 
             if not specific_codes_list: # Si estamos en modo de detección automática
                 texto_pagina_completo = pagina.get_text("text")
@@ -95,45 +92,40 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
                 regex_patron = r"Ref:\s*([\w.:-]+(?:[\s-]*[\w.:-]+)*)"
                 for match in re.finditer(regex_patron, texto_pagina_completo):
                     # Normaliza el código encontrado por la regex
-                    c_auto = re.sub(r'\s+', '', match.group(1).strip()).lower()
+                    c_auto = re.sub(r'[\s-]+', '', match.group(1).strip()).lower()
                     if c_auto and c_auto not in current_page_codes_to_find: # Evitar duplicados
                         current_page_codes_to_find.append(c_auto)
-                        current_page_max_code_length = max(current_page_max_code_length, len(c_auto))
-
+            
             if not current_page_codes_to_find: # Si no hay códigos para buscar en esta página
                 continue
 
-            # Solo texto de palabras, para acelerar el acceso
-            word_texts = [w[4] for w in words]
-            n_words = len(word_texts)
-
-            for i in range(n_words):
-                # Construye la secuencia solo hasta el largo máximo
-                seq_original = "" # Para almacenar la secuencia de texto original
-                rects = [] # Para almacenar los rectángulos de las palabras en la secuencia
+            # 2. Iterar sobre las palabras de la página para encontrar coincidencias
+            i = 0
+            while i < n_words:
+                # Inicia la construcción de una secuencia desde la palabra 'i'
+                current_sequence_text = ""      # Almacena el texto original de la secuencia
+                rects_to_highlight = []         # Almacena los rectángulos de las palabras en la secuencia
                 
-                # El bucle 'j' avanza para construir la secuencia
-                # min(i + current_page_max_code_length + 1, n_words) para asegurar que no excedemos el límite
-                # y que cubrimos la longitud máxima del código.
-                for j in range(i, min(i + current_page_max_code_length + 5, n_words)): # Añadimos un pequeño margen
-                    word_text = word_texts[j]
+                # El bucle 'j' avanza para construir la secuencia palabra por palabra
+                for j in range(i, n_words):
+                    word_text = words[j][4]
+                    word_rect = fitz.Rect(words[j][:4])
                     
-                    seq_original += word_text
-                    rects.append(fitz.Rect(words[j][:4])) # Usar el rectángulo original de la palabra
+                    current_sequence_text += word_text
+                    rects_to_highlight.append(word_rect)
                     
-                    flat_seq = re.sub(r'\s+', '', seq_original).lower() # Normaliza la secuencia construida
+                    # Normalizamos la secuencia actual para la comparación (sin espacios y guiones)
+                    flat_sequence = re.sub(r'[\s-]+', '', current_sequence_text).lower()
 
                     # DEBUG:
-                    # print(f"SEC_DEBUG: P{numero_pagina+1} W{i}-{j}: '{seq_original}' -> Flat: '{flat_seq}'")
+                    # print(f"SEC_DEBUG: P{numero_pagina+1} W{i}-{j}: '{current_sequence_text}' -> Flat: '{flat_sequence}'")
+                    # print(f"Comparando: '{flat_sequence}' | ¿Está en?: {current_page_codes_to_find}")
 
-                    # AÑADE ESTA LÍNEA PARA VER LA COMPARACIÓN
-                    print(f"Comparando: '{flat_seq}' | ¿Está en?: {current_page_codes_to_find}")
-
-                    # Comprobar si la secuencia aplanada construida es un prefijo de algún código objetivo
+                    # Comprobar si la secuencia actual (plana) es un prefijo de algún código objetivo
                     # Esto es para la "poda" de secuencias.
                     is_prefix_of_any_target = False
                     for target in current_page_codes_to_find:
-                        if target.startswith(flat_seq):
+                        if target.startswith(flat_sequence):
                             is_prefix_of_any_target = True
                             break
                     
@@ -143,14 +135,14 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
                         break # Rompemos el bucle 'j' y pasamos a la siguiente palabra inicial 'i'
 
                     # Si la secuencia plana construida coincide exactamente con algún código objetivo
-                    if flat_seq in current_page_codes_to_find:
+                    if flat_sequence in current_page_codes_to_find:
                         # ¡Coincidencia encontrada!
-                        print(f"✅ CÓDIGO ENCONTRADO Y RESALTADO: '{seq_original}' (plano: '{flat_seq}') en página {numero_pagina + 1}.")
+                        print(f"✅ CÓDIGO ENCONTRADO Y RESALTADO: '{current_sequence_text}' (plano: '{flat_sequence}') en página {numero_pagina + 1}.")
                         
                         # Unimos todos los rectángulos de las palabras que forman el código
                         combined_rect = fitz.Rect()
-                        for r in rects:
-                            combined_rect |= r # Unir rectángulos
+                        for r in rects_to_highlight:
+                            combined_rect.include_rect(r)
                         
                         pagina.add_highlight_annot(combined_rect)
                         found_any_code = True
@@ -166,7 +158,13 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
                 # Esto se maneja implícitamente por el bucle 'for i' y el ajuste de 'i=j' en el 'break' interno.
                 # No necesitamos un 'i += 1' explícito aquí si el 'break' interno ya lo maneja.
                 # El 'for i' avanzará automáticamente si no se hizo 'break'.
-                pass
+                pass # El control de 'i' se maneja dentro del bucle 'j' o su 'else' implícito
+
+            # Después de procesar todas las palabras de la página, si no se encontró nada,
+            # la variable 'i' habrá llegado al final de 'words'.
+            # Si se encontraron coincidencias, 'i' se ajustó.
+            # No necesitamos un 'i += 1' aquí, ya que el bucle 'while i < n_words' y los 'i = j + 1'
+            # dentro del bucle 'j' ya controlan el avance de 'i'.
 
 
         if found_any_code:
