@@ -116,7 +116,7 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
                 if rects_encontrados:
                     found_any_code = True
                     for rect in rects_encontrados:
-                        pagina.add_highlight_annot(rect)
+                        pagina.add_highlight_annot(rect, colors={"stroke": (0, 1, 0)})
                     
                     # Normaliza el código original para añadirlo al set de encontrados rápidamente
                     normalized_found_code = re.sub(r'[\s-]+', '', code_original).lower()
