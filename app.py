@@ -35,79 +35,46 @@ def allowed_file(filename):
 
 def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specific_codes_list=None):
     """
-    Procesa un archivo PDF para encontrar y resaltar códigos, incluyendo aquellos
-    que están partidos por saltos de línea, utilizando una estrategia de búsqueda híbrida.
+    Versión Híbrida Avanzada: Encuentra códigos (incluso partidos), los resalta
+    y genera un nuevo PDF solo con las páginas que contienen resaltados.
     """
     nombre_pdf_original = os.path.basename(ruta_pdf_entrada)
     nombre_pdf_salida = f"resaltado_{uuid.uuid4().hex}_{nombre_pdf_original}"
     ruta_pdf_salida = os.path.join(directorio_salida, nombre_pdf_salida)
 
-    print(f"DEBUG: Intentando procesar PDF. Entrada: '{ruta_pdf_entrada}', Salida esperada: '{ruta_pdf_salida}'")
-    if specific_codes_list:
-        print(f"DEBUG: Modo de resaltado: Códigos específicos. Lista: {specific_codes_list}")
-    else:
-        print("DEBUG: Modo de resaltado: Detección automática por Regex.")
+    if not specific_codes_list:
+        print("INFO: No se proporcionaron códigos específicos para buscar.")
+        # Si no hay códigos específicos, puedes decidir si quieres que se ejecute la auto-detección
+        # o simplemente salir. Por ahora, salimos si no hay específicos.
+        # Si quieres auto-detección, esta parte de la lógica debería estar aquí
+        # y poblar `codes_to_find` para que el resto del código la use.
+        return None
 
     try:
         doc = fitz.open(ruta_pdf_entrada)
-        found_any_code = False
+        highlighted_pages = set() # Usamos un set para registrar las páginas con resaltados
         
-        # Lista de todos los códigos a buscar (normalizados)
-        all_codes_to_find_normalized = set() # Usamos un set para búsquedas rápidas
-        if specific_codes_list:
-            for code in specific_codes_list:
-                c = re.sub(r'[\s-]+', '', code.strip()).lower() # Normalización robusta
-                if c:
-                    all_codes_to_find_normalized.add(c)
-        else: # Modo automático: Pre-detectar códigos con regex en el texto completo (más rápido)
-            full_text_doc = ""
-            for p_num in range(doc.page_count):
-                full_text_doc += doc[p_num].get_text("text") + "\n" # Concatenar texto de todas las páginas
-            
-            regex_patron = r"Ref:\s*([\w.:-]+(?:[\s-]*[\w.:-]+)*)" # Regex flexible
-            for match in re.finditer(regex_patron, full_text_doc):
-                c_auto = re.sub(r'[\s-]+', '', match.group(1).strip()).lower()
-                if c_auto:
-                    all_codes_to_find_normalized.add(c_auto)
-            
-            if not all_codes_to_find_normalized:
-                print("INFO: Modo automático: No se detectaron códigos 'Ref: ... /' en el documento.")
-                doc.close()
-                return None # O puedes optar por guardar el PDF original sin cambios
-
-        if not all_codes_to_find_normalized:
-            print("INFO: No se proporcionaron códigos válidos para buscar (ni específicos ni por auto-detección).")
+        # Normalizar y limpiar los códigos a buscar una sola vez
+        codes_to_find = list(set([re.sub(r'[\s-]+', '', code.strip()).lower() for code in specific_codes_list if code.strip()]))
+        
+        if not codes_to_find:
+            print("INFO: Después de la normalización, no hay códigos válidos para buscar.")
             doc.close()
             return None
 
-        # Lista para anotar los códigos encontrados en la Fase 1
+        # Lista para anotar los códigos que se encuentren rápidamente (normalizados)
         found_codes_fast = set() 
 
-        # --- FASE 1: Búsqueda Rápida (search_for) ---
+        # --- FASE 1: BÚSQUEDA RÁPIDA (search_for) ---
         print("DEBUG: Iniciando Fase 1 - Búsqueda Rápida.")
         for numero_pagina, pagina in enumerate(doc):
-            # Para search_for, necesitamos el código en su forma original, no normalizada
-            # Iteramos sobre los códigos originales para buscar.
+            # Para search_for, necesitamos la cadena original, no la normalizada.
             # Sin embargo, search_for no maneja saltos de línea.
-            # Para la Fase 1, buscaremos los códigos tal como los introdujo el usuario (sin normalizar espacios/guiones)
-            # o tal como los extrajo la regex (si es auto-detección).
-            # Esto es un compromiso: si el código original tiene espacios/guiones, search_for puede fallar.
-            # La Fase 2 compensará esto.
-
-            # Para la Fase 1, vamos a buscar las cadenas originales que el usuario/regex espera.
-            # Si el código original es "MF06 10G", lo buscamos como "MF06 10G".
-            # Si el código original es "C-976", lo buscamos como "C-976".
+            # Iteramos sobre los códigos originales para buscar.
             
-            # Reconstruir la lista de códigos originales a buscar para esta página
-            codes_original_for_fast_search = []
-            if specific_codes_list:
-                codes_original_for_fast_search = [c.strip() for c in specific_codes_list if c.strip()]
-            else: # Si es auto-detección, re-extraemos los originales de la regex
-                texto_pagina_completo = pagina.get_text("text")
-                regex_patron = r"Ref:\s*([\w.:-]+(?:[\s-]*[\w.:-]+)*)"
-                for match in re.finditer(regex_patron, texto_pagina_completo):
-                    codes_original_for_fast_search.append(match.group(1).strip())
-
+            # Recuperar los códigos originales para esta página si estamos en modo específico.
+            # Si fuera auto-detección, la lógica sería diferente aquí.
+            codes_original_for_fast_search = [c.strip() for c in specific_codes_list if c.strip()]
 
             for code_original in codes_original_for_fast_search:
                 # search_for encuentra todas las ocurrencias del texto y devuelve sus rectángulos
@@ -115,24 +82,22 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
                 
                 if rects_encontrados:
                     found_any_code = True
+                    highlighted_pages.add(pagina.number) # Anotamos el número de página
                     for rect in rects_encontrados:
-                      # DESPUÉS (Funciona en todas las versiones)
-                            # 1. Crea el resaltado en la página
                         highlight = pagina.add_highlight_annot(rect)
-
-                        # 2. Establece el nuevo color
-                        highlight.set_colors(stroke=color_verde_oscuro)
-
-                        # 3. Aplica los cambios a la anotación
+                        # Nota: set_colors y update pueden causar errores en versiones antiguas de PyMuPDF.
+                        # Si esto falla, comenta estas dos líneas para usar el color predeterminado.
+                        highlight.set_colors(stroke=(0, 0.6, 0), fill=(0, 0.6, 0)) # Verde oscuro para borde y relleno
                         highlight.update()
+                    
                     # Normaliza el código original para añadirlo al set de encontrados rápidamente
                     normalized_found_code = re.sub(r'[\s-]+', '', code_original).lower()
                     found_codes_fast.add(normalized_found_code) 
-                    print(f"DEBUG: Fase 1: Código '{code_original}' (normalizado: '{normalized_found_code}') encontrado y resaltado en página {numero_pagina + 1}.")
+                    print(f"DEBUG: Fase 1: Código '{code_original}' (normalizado: '{normalized_found_code}') encontrado y resaltado en página {pagina.number + 1}.")
         
-        # --- FASE 2: Búsqueda Profunda (get_text("words")) ---
-        # Identifica los códigos que NO se encontraron en la Fase 1
-        unfound_codes_normalized = [code for code in all_codes_to_find_normalized if code not in found_codes_fast]
+        # --- FASE 2: BÚSQUEDA PROFUNDA (get_text("words")) ---
+        # Identifica los códigos que NO se encontraron en la Fase 1 (usando la lista normalizada)
+        unfound_codes_normalized = [code for code in codes_to_find if code not in found_codes_fast]
 
         if unfound_codes_normalized:
             print(f"DEBUG: Iniciando Fase 2 - Búsqueda Profunda para códigos: {unfound_codes_normalized}")
@@ -144,8 +109,8 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
                 
                 n_words = len(words)
                 
-                for code_to_find_deep in unfound_codes_normalized:
-                    flat_target_code_deep = code_to_find_deep # Ya está normalizado desde all_codes_to_find_normalized
+                for code_to_find_deep_normalized in unfound_codes_normalized:
+                    flat_target_code_deep = code_to_find_deep_normalized # Ya está normalizado
 
                     i = 0
                     while i < n_words:
@@ -167,33 +132,49 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
 
                             # Si la secuencia plana construida coincide exactamente con el código objetivo
                             if flat_sequence == flat_target_code_deep:
-                                print(f"✅ CÓDIGO ENCONTRADO (Fase 2): '{code_to_find_deep}' en página {numero_pagina + 1}.")
+                                print(f"✅ CÓDIGO PARTIDO ENCONTRADO (Fase 2): '{code_to_find_deep_normalized}' en página {pagina.number + 1}.")
                                 
+                                highlighted_pages.add(pagina.number) # Anotamos la página
                                 combined_rect = fitz.Rect()
                                 for r in rects_to_highlight:
                                     combined_rect.include_rect(r)
                                 
-                                pagina.add_highlight_annot(combined_rect)
-                                found_any_code = True
+                                highlight = pagina.add_highlight_annot(combined_rect)
+                                # Nota: set_colors y update pueden causar errores en versiones antiguas de PyMuPDF.
+                                # Si esto falla, comenta estas dos líneas para usar el color predeterminado.
+                                highlight.set_colors(stroke=(0, 0.6, 0), fill=(0, 0.6, 0)) # Verde oscuro
+                                highlight.update()
                                 
                                 i = j # Avanza 'i' para no re-procesar
+                                found_any_code = True # Asegurarse de que found_any_code se actualice
                                 break # Salir del bucle 'j'
                         
                         i += 1 # Avanzar 'i' para la siguiente posible secuencia
 
-        if found_any_code:
-            print("INFO: Guardando PDF con códigos resaltados...")
-            doc.save(ruta_pdf_salida, garbage=4, deflate=True) 
+        # --- PASO FINAL: CREAR EL NUEVO PDF FILTRADO ---
+        if highlighted_pages:
+            print(f"INFO: Se encontraron códigos. Creando PDF de salida con las páginas: {sorted(list(highlighted_pages))}")
+            
+            # 1. Crear un nuevo documento en blanco
+            new_doc = fitz.open()
+            
+            # 2. Copiar solo las páginas resaltadas del documento original al nuevo
+            for page_num in sorted(list(highlighted_pages)):
+                new_doc.insert_pdf(doc, from_page=page_num, to_page=page_num)
+            
+            # 3. Guardar el nuevo documento filtrado
+            new_doc.save(ruta_pdf_salida, garbage=4, deflate=True)
+            new_doc.close()
         else:
-            print("INFO: No se encontraron códigos. Guardando el PDF original sin cambios.")
-            doc.save(ruta_pdf_salida) 
+            print("INFO: No se encontró ningún código. No se generará PDF de salida.")
+            ruta_pdf_salida = None # Indicamos que no se creó ningún archivo
 
         doc.close()
         return ruta_pdf_salida
 
     except Exception as e:
         print(f"❌ Ocurrió un error al procesar '{ruta_pdf_entrada}': {e}")
-        traceback.print_exc() 
+        traceback.print_exc()
         return None
 
 @app.route('/')
