@@ -117,11 +117,14 @@ def procesar_pdf_y_resaltar_codigos(ruta_pdf_entrada, directorio_salida, specifi
                     found_any_code = True
                     for rect in rects_encontrados:
                       # DESPUÉS (Funciona en todas las versiones)
-                            highlight = pagina.add_highlight_annot(rect) # 1. Crea el resaltado
-                            color_verde = (0, 1, 0) # Define el color
-                            highlight.set_colors(stroke=color_verde) # 2. Asigna el color
-                            highlight.update() # 3. Aplica los cambios
-                    
+                            # 1. Crea el resaltado en la página
+                        highlight = pagina.add_highlight_annot(rect)
+
+                        # 2. Establece el nuevo color
+                        highlight.set_colors(stroke=color_verde_oscuro)
+
+                        # 3. Aplica los cambios a la anotación
+                        highlight.update()
                     # Normaliza el código original para añadirlo al set de encontrados rápidamente
                     normalized_found_code = re.sub(r'[\s-]+', '', code_original).lower()
                     found_codes_fast.add(normalized_found_code) 
