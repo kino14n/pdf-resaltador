@@ -1,7 +1,7 @@
 import fitz  # Importa PyMuPDF
 import re    # Importa el módulo de expresiones regulares
 import os    # Importa el módulo para operaciones del sistema de archivos
-from flask import Flask, request, render_template, send_file, redirect, url_for, flash
+from flask import Flask, request, render_template, send_file, redirect, url_for, flash, jsonify # Añadida importación de jsonify
 from werkzeug.utils import secure_filename
 import uuid # Para generar nombres de archivo únicos
 import traceback # Para obtener trazas de error completas
