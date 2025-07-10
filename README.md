@@ -1,30 +1,40 @@
-# PDF Resaltador
+# PDF Resaltador de Códigos
 
-Este es un proyecto de aplicación web sencilla construida con Flask y PyMuPDF que permite a los usuarios subir archivos PDF. La aplicación procesa estos PDFs para encontrar y resaltar códigos específicos que se encuentran entre la expresión "Ref:" y el primer carácter de barra (`/`). Los códigos pueden contener letras, números, puntos, dos puntos, guiones y espacios. Una vez procesado, el PDF resultante con los resaltados se ofrece para descarga.
+**PDF Resaltador** es una aplicación web avanzada y fácil de usar que permite buscar y resaltar códigos dentro de archivos PDF de dos formas:
 
-## Características
+- **Extracción automática:** Encuentra y resalta todos los códigos que aparecen entre la expresión "Ref:" y el primer carácter de barra `/`.
+- **Búsqueda personalizada:** Permite ingresar o subir una lista de códigos personalizados para resaltar, incluso si aparecen partidos por saltos de línea, guiones o espacios.
 
-* **Subida de PDF:** Interfaz web intuitiva para seleccionar y subir archivos PDF.
+El PDF resultado solo muestra las páginas que contienen coincidencias resaltadas, para que el usuario ahorre tiempo revisando información.
 
-* **Extracción de Patrones:** Utiliza expresiones regulares para identificar códigos específicos.
+---
 
-* **Resaltado Visual:** Resalta automáticamente los códigos encontrados directamente en el PDF.
+## Características principales
 
-* **Descarga de PDF Procesado:** Permite descargar el PDF con los códigos resaltados.
+- **Sube un PDF** desde la interfaz web.
+- **Modo automático:** Detecta y resalta todos los códigos que cumplen el patrón `"Ref:" ... "/"`.
+- **Modo personalizado:** Ingresa o sube una lista de códigos para buscar y resaltar (soporta fragmentación).
+- **Descarga el PDF** resaltado, mostrando solo las páginas relevantes.
+- Manejo eficiente de archivos temporales (preparado para Railway, Heroku, etc.).
+- 100% Python + Flask + PyMuPDF (fitz), fácil de desplegar y mantener.
 
-* **Despliegue Sencillo:** Configurado para un despliegue fácil en plataformas como Railway.
+---
 
-## Requisitos
+## ¿Cómo funciona?
 
-Para ejecutar esta aplicación localmente, necesitarás tener instalado:
+1. El usuario accede a la web y sube su PDF.
+2. Elige el modo:
+    - **Automático:** La app detecta y resalta todos los códigos que cumplen el patrón `"Ref:" ... "/"`.
+    - **Personalizado:** El usuario ingresa o sube la lista de códigos que desea buscar y resaltar.
+3. El backend procesa el PDF, resalta las coincidencias y genera un nuevo PDF solo con las páginas relevantes.
+4. El usuario descarga el PDF resultado.
 
-* Python 3.x
+---
 
-* `pip` (gestor de paquetes de Python)
+## Despliegue rápido (Railway/Heroku/servidor propio)
 
-## Configuración y Ejecución Local
+### 1. Clona el repositorio:
 
-Sigue estos pasos para configurar y ejecutar la aplicación en tu máquina local:
-
-1. **Clona el Repositorio:**
-   Si aún no lo has hecho, clona este repositorio a tu máquina local usando Git Bash (o tu terminal preferida):
+```bash
+git clone TU_REPO_GIT_URL
+cd pdf-resaltador
